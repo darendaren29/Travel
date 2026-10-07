@@ -4,6 +4,7 @@ import { GOOGLE_MAPS_API_KEY, GOOGLE_MAP_ID } from '../config'
 import { CATEGORY_META, type Activity, type Trip } from '../types'
 import { formatMoney } from '../utils'
 import { navLinks } from '../nav'
+import { dayLegs, decodePolyline } from '../routes'
 import type { DayGroup } from './MapView'
 
 interface Props {
@@ -46,9 +47,17 @@ export default function GoogleMapPane({ trip, days, hidden, selectedId, onSelect
       >
         <FitBounds points={points} tripId={trip.id} />
         <PanToSelected activity={selected} />
-        {visible.map((d) => (
-          <DayLine key={d.index} color={d.color} path={d.activities.filter(hasGeo).map((a) => ({ lat: a.lat, lng: a.lng }))} />
-        ))}
+        {visible.flatMap((d) =>
+          // One segment per consecutive pair: the real route when we have it, a dashed straight line otherwise.
+          dayLegs(trip, d.activities).map((l) => (
+            <DayLine
+              key={`${d.index}-${l.key}`}
+              color={d.color}
+              dashed={!l.leg?.polyline}
+              path={l.leg?.polyline ? decodePolyline(l.leg.polyline) : [{ lat: l.from.lat, lng: l.from.lng }, { lat: l.to.lat, lng: l.to.lng }]}
+            />
+          )),
+        )}
         {visible.flatMap((d) =>
           d.activities.map((a, n) =>
             hasGeo(a) ? (
@@ -84,19 +93,23 @@ export default function GoogleMapPane({ trip, days, hidden, selectedId, onSelect
   )
 }
 
-/** Dashed polyline through a day's stops (google.maps.Polyline has no React wrapper). */
-function DayLine({ path, color }: { path: google.maps.LatLngLiteral[]; color: string }) {
+/** Route segment (google.maps.Polyline has no React wrapper): solid for a real route, dashed for a straight guess. */
+function DayLine({ path, color, dashed }: { path: google.maps.LatLngLiteral[]; color: string; dashed: boolean }) {
   const map = useMap()
   useEffect(() => {
     if (!map || path.length < 2) return
-    const line = new google.maps.Polyline({
-      map,
-      path,
-      strokeOpacity: 0,
-      icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: color, scale: 3 }, offset: '0', repeat: '14px' }],
-    })
+    const line = new google.maps.Polyline(
+      dashed
+        ? {
+            map,
+            path,
+            strokeOpacity: 0,
+            icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: color, scale: 3 }, offset: '0', repeat: '14px' }],
+          }
+        : { map, path, strokeColor: color, strokeOpacity: 0.85, strokeWeight: 4 },
+    )
     return () => line.setMap(null)
-  }, [map, color, JSON.stringify(path)]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map, color, dashed, JSON.stringify(path)]) // eslint-disable-line react-hooks/exhaustive-deps
   return null
 }
 

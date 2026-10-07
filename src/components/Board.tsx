@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -16,8 +16,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore, useCurrentTrip } from '../store'
-import { CATEGORY_META, type Activity, type Trip } from '../types'
-import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
+import { CATEGORY_META, TRAVEL_MODES, type Activity, type Trip } from '../types'
 import {
   addDays,
   dayActivities,
@@ -31,6 +30,9 @@ import {
   formatMoney,
   toMinutes,
 } from '../utils'
+import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
+import { dayLegs, formatDistance, hasGeo, legBetween, optimizeOrder, travelMinutes, tripMode, type DayLeg } from '../routes'
+import { photoUrl, useGooglePlaces } from '../places'
 
 const STRIP_START = 6 * 60 // 06:00
 const STRIP_END = 24 * 60 // 24:00
@@ -110,19 +112,60 @@ export default function Board() {
   )
 }
 
+/** Travel minutes needed before each activity (index-aligned; 0 when unknown). */
+const travelBefore = (trip: Trip, activities: Activity[]): number[] =>
+  activities.map((a, i) => {
+    if (i === 0) return 0
+    const leg = legBetween(trip, activities[i - 1], a)
+    return leg ? travelMinutes(leg) : 0
+  })
+
 function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver: boolean }) {
-  const { addActivity, removeDay } = useStore()
+  const { addActivity, removeDay, retimeDay, reorderDay } = useStore()
   const activities = dayActivities(trip, index)
   const conflicts = findConflicts(activities)
   const color = dayColor(index)
   const { setNodeRef } = useDroppable({ id: dayId(index) })
   const cost = dayCost(trip, index)
   const routeUrl = dayRouteUrl(trip, activities)
+  const routesEnabled = useGooglePlaces(trip.destination)
+  const legs = dayLegs(trip, activities)
+  const travel = travelBefore(trip, activities)
+  const [optimizing, setOptimizing] = useState(false)
+  const pendingRetime = useRef(false)
+
+  // Some gap is shorter than the travel it needs → offer to push things later.
+  const needsRetime = activities.some((a, i) => i > 0 && travel[i] > 0 && toMinutes(a.start) - toMinutes(activities[i - 1].end) < travel[i])
+  const allLegsReady = legs.length > 0 && legs.every((l) => l.leg)
+  const canOptimize = routesEnabled && activities.length >= 3 && activities.every(hasGeo)
+
+  // After "best order", legs for the new pairs arrive asynchronously; re-time once they are in.
+  useEffect(() => {
+    if (pendingRetime.current && allLegsReady) {
+      pendingRetime.current = false
+      retimeDay(index, travel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allLegsReady, trip.legs])
 
   const onRemove = () => {
     if (trip.days.length <= 1) return
     if (activities.length && !confirm(`第 ${index + 1} 天有 ${activities.length} 個活動，確定刪除？`)) return
     removeDay(index)
+  }
+
+  const onOptimize = async () => {
+    if (!confirm(`依移動時間重排第 ${index + 1} 天的順序？第一站與最後一站固定，其餘重新排列並重新安排時間。`)) return
+    setOptimizing(true)
+    try {
+      const order = await optimizeOrder(trip, activities.filter(hasGeo))
+      reorderDay(index, order)
+      pendingRetime.current = true
+    } catch (e) {
+      alert(`無法最佳化：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setOptimizing(false)
+    }
   }
 
   return (
@@ -131,14 +174,26 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
         <div className="title">
           <span className="dot" style={{ background: color }} />
           第 {index + 1} 天
-          {routeUrl && (
-            <button className="btn sm ghost route" onClick={() => openUrl(routeUrl)} title="在 Google 地圖開啟當日路線">
-              🧭 路線
+          <span className="day-tools">
+            {routeUrl && (
+              <button className="btn sm ghost" onClick={() => openUrl(routeUrl)} title="在 Google 地圖開啟當日路線">
+                🧭
+              </button>
+            )}
+            {canOptimize && (
+              <button className="btn sm ghost" onClick={() => void onOptimize()} disabled={optimizing} title="依移動時間自動排出最佳順序">
+                {optimizing ? '…' : '🔀'}
+              </button>
+            )}
+            {needsRetime && (
+              <button className="btn sm ghost warn" onClick={() => retimeDay(index, travel)} title="有活動趕不上：依交通時間把後面的活動往後推">
+                ⏩
+              </button>
+            )}
+            <button className="btn sm ghost remove" onClick={onRemove} disabled={trip.days.length <= 1} title="刪除此天">
+              ✕
             </button>
-          )}
-          <button className="btn sm ghost remove" onClick={onRemove} disabled={trip.days.length <= 1} title="刪除此天">
-            ✕
-          </button>
+          </span>
         </div>
         <div className="sub">
           <span>{formatDate(addDays(trip.startDate, index))}</span>
@@ -146,7 +201,7 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
             {activities.length} 項 · {formatMoney(cost, trip.currency)}
           </span>
         </div>
-        <DayStrip activities={activities} conflicts={conflicts} />
+        <DayStrip activities={activities} conflicts={conflicts} travel={travel} />
       </header>
 
       <SortableContext items={activities.map((a) => a.id)} strategy={verticalListSortingStrategy}>
@@ -154,7 +209,7 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
           {activities.length === 0 && <div className="empty-hint">尚無活動，拖曳卡片到這裡或點下方新增</div>}
           {activities.map((a, i) => (
             <div key={a.id}>
-              {i > 0 && <Gap prev={activities[i - 1]} cur={a} />}
+              {i > 0 && <Gap trip={trip} prev={activities[i - 1]} cur={a} leg={legs.find((l) => l.to.id === a.id)} routesEnabled={routesEnabled} />}
               <SortableCard activity={a} conflict={conflicts.has(a.id)} />
             </div>
           ))}
@@ -170,12 +225,20 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
   )
 }
 
-/** Horizontal 06:00–24:00 strip showing where the day's activities fall. */
-function DayStrip({ activities, conflicts }: { activities: Activity[]; conflicts: Set<string> }) {
+/** Horizontal 06:00–24:00 strip: activities in category colour, travel time in grey (red when it overruns). */
+function DayStrip({ activities, conflicts, travel }: { activities: Activity[]; conflicts: Set<string>; travel: number[] }) {
   const span = STRIP_END - STRIP_START
+  const pct = (m: number) => `${((Math.max(STRIP_START, Math.min(STRIP_END, m)) - STRIP_START) / span) * 100}%`
   return (
     <>
-      <div className="day-strip" title="當日時間分布（06:00–24:00）">
+      <div className="day-strip" title="當日時間分布（06:00–24:00）；灰色為移動時間">
+        {activities.map((a, i) => {
+          if (i === 0 || !travel[i]) return null
+          const from = toMinutes(activities[i - 1].end)
+          const to = from + travel[i]
+          const late = to > toMinutes(a.start)
+          return <span key={`t-${a.id}`} className={`travel ${late ? 'late' : ''}`} style={{ left: pct(from), width: `calc(${pct(to)} - ${pct(from)})` }} />
+        })}
         {activities.map((a) => {
           const s = Math.max(STRIP_START, toMinutes(a.start))
           const e = Math.min(STRIP_END, Math.max(toMinutes(a.end), s + 10))
@@ -202,14 +265,30 @@ function DayStrip({ activities, conflicts }: { activities: Activity[]; conflicts
   )
 }
 
-function Gap({ prev, cur }: { prev: Activity; cur: Activity }) {
+function Gap({ trip, prev, cur, leg, routesEnabled }: { trip: Trip; prev: Activity; cur: Activity; leg?: DayLeg; routesEnabled: boolean }) {
   const gap = toMinutes(cur.start) - toMinutes(prev.end)
-  const hasGeo = prev.lat != null && prev.lng != null && cur.lat != null && cur.lng != null
-  const km = hasGeo ? distanceKm({ lat: prev.lat!, lng: prev.lng! }, { lat: cur.lat!, lng: cur.lng! }) : null
+  const mode = TRAVEL_MODES[tripMode(trip)]
+  const geo = hasGeo(prev) && hasGeo(cur)
+  const km = geo ? distanceKm(prev, cur) : null
+
+  if (gap < 0) return <div className="gap conflict">⚠ 時間重疊 {formatDuration(-gap)}</div>
+
+  if (leg?.leg) {
+    const mins = travelMinutes(leg.leg)
+    const late = mins > gap
+    return (
+      <div className={`gap ${late ? 'conflict' : ''}`}>
+        {mode.icon} {formatDuration(mins)} · {formatDistance(leg.leg.distanceM)}
+        {late ? ` · ⚠ 只有 ${formatDuration(gap)}，趕不上` : gap - mins >= 10 ? ` · 餘 ${formatDuration(gap - mins)}` : ''}
+      </div>
+    )
+  }
+
   return (
-    <div className={`gap ${gap < 0 ? 'conflict' : ''}`}>
-      {gap < 0 ? `⚠ 時間重疊 ${formatDuration(-gap)}` : gap === 0 ? '→ 緊接' : `⏱ 空檔 ${formatDuration(gap)}`}
+    <div className="gap">
+      {gap === 0 ? '→ 緊接' : `⏱ 空檔 ${formatDuration(gap)}`}
       {km != null && km > 0.05 && <span>· 📍 約 {km < 10 ? km.toFixed(1) : Math.round(km)} km</span>}
+      {routesEnabled && geo && <span className="muted">· 計算中…</span>}
     </div>
   )
 }
@@ -239,7 +318,7 @@ function CardView({
   const select = useStore((s) => s.select)
   const trip = useCurrentTrip()
   const meta = CATEGORY_META[a.category]
-  const cls = ['card', selected && 'selected', conflict && 'conflict', dragging && 'dragging', overlay && 'overlay']
+  const cls = ['card', selected && 'selected', conflict && 'conflict', dragging && 'dragging', overlay && 'overlay', a.photo && 'has-photo']
     .filter(Boolean)
     .join(' ')
   const nav = canNavigate(a) ? navLinks(trip, a)[0] : null
@@ -260,6 +339,7 @@ function CardView({
           {a.cost > 0 && <span>{formatMoney(a.cost, trip.currency)}</span>}
         </div>
       </div>
+      {a.photo && <img className="thumb" src={photoUrl(a.photo, 120)} alt="" loading="lazy" draggable={false} />}
       {conflict && <span className="badge">衝突</span>}
       {nav && !overlay && (
         <button

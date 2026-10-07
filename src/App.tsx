@@ -6,10 +6,12 @@ import MapView from './components/MapView'
 import BudgetView from './components/BudgetView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
+import { useRouteSync } from './useRouteSync'
 
 export default function App() {
   const view = useStore((s) => s.view)
   const selected = useStore((s) => s.selectedActivityId)
+  useRouteSync()
 
   return (
     <div className="app">

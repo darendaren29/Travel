@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
 import { addDays, formatDate, formatMoney, tripTotalCost } from '../utils'
+import { TRAVEL_MODES, type TravelMode } from '../types'
+import { useGooglePlaces } from '../places'
+import { tripMode } from '../routes'
 
 export default function TripBar() {
   const trip = useCurrentTrip()
-  const updateTrip = useStore((s) => s.updateTrip)
+  const { updateTrip, routing, routingError } = useStore()
   const [open, setOpen] = useState(false)
+  const routesEnabled = useGooglePlaces(trip.destination)
   const total = tripTotalCost(trip)
   const count = Object.keys(trip.activities).length
   const endDate = addDays(trip.startDate, trip.days.length - 1)
@@ -59,6 +63,24 @@ export default function TripBar() {
             placeholder="0"
           />
         </label>
+        {routesEnabled && (
+          <label title="景點之間的交通時間與路徑會依此計算">
+            交通
+            <select value={tripMode(trip)} onChange={(e) => updateTrip({ travelMode: e.target.value as TravelMode })}>
+              {(Object.keys(TRAVEL_MODES) as TravelMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {TRAVEL_MODES[m].icon} {TRAVEL_MODES[m].label}
+                </option>
+              ))}
+            </select>
+            {routing === 'loading' && <span className="routing loading">計算路線中…</span>}
+            {routing === 'error' && (
+              <span className="routing error" title={routingError ?? ''}>
+                部分路線無法計算
+              </span>
+            )}
+          </label>
+        )}
       </div>
 
       <div className="stat">

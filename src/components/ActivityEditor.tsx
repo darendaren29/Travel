@@ -3,7 +3,7 @@ import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Activity } from '../types'
 import { duration, formatDuration } from '../utils'
 import { canNavigate, navLinks } from '../nav'
-import { searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
+import { photoUrl, searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
 
 export default function ActivityEditor() {
   const trip = useCurrentTrip()
@@ -45,9 +45,25 @@ export default function ActivityEditor() {
   }
 
   const pick = (r: PlaceHit) => {
-    patch({ location: r.name, lat: r.lat, lng: r.lng })
+    patch({ location: r.name, lat: r.lat, lng: r.lng, photo: r.photo })
     setQuery(r.name)
     setResults([])
+  }
+
+  /** Look the place up by name just to grab Google's photo (e.g. for AI-generated stops). */
+  const fetchPhoto = async () => {
+    const q = a.location || a.title
+    setSearching(true)
+    try {
+      const anchor = a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : undefined
+      const hit = (await searchPlaces(q, trip.destination, { near: anchor })).find((h) => h.photo)
+      if (hit) patch({ photo: hit.photo })
+      else alert('Google 沒有這個地點的照片。')
+    } catch (e) {
+      alert(`取得照片失敗：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSearching(false)
+    }
   }
 
   const startPicking = () => {
@@ -169,6 +185,26 @@ export default function ActivityEditor() {
             )}
           </div>
         </div>
+
+        {googleSearch && (
+          <div className="field">
+            <label>照片</label>
+            <div className="photo-row">
+              {a.photo ? (
+                <>
+                  <img className="photo-preview" src={photoUrl(a.photo, 400)} alt="" />
+                  <button className="btn sm ghost" onClick={() => patch({ photo: undefined })}>
+                    移除
+                  </button>
+                </>
+              ) : (
+                <button className="btn sm" onClick={() => void fetchPhoto()} disabled={searching || !(a.location || a.title)}>
+                  📷 從 Google 取得照片
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {canNavigate(a) && (
           <div className="field">

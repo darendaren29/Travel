@@ -1,12 +1,18 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Activity, AuthUser, Trip } from './types'
+import type { Activity, AuthUser, Leg, Trip } from './types'
 import { sampleTrip } from './sample'
 import { duration, longId, toMinutes, toTime, uid } from './utils'
 import type { BasemapKey } from './basemaps'
 
 export type View = 'board' | 'map' | 'budget'
 export type SyncState = 'off' | 'syncing' | 'synced' | 'error'
+export type RoutingState = 'idle' | 'loading' | 'error'
+
+/** Keep the route cache bounded; oldest legs are dropped first. */
+const MAX_LEGS = 300
+/** Default gap inserted between stops when re-ordering a day (minutes). */
+const REORDER_GAP_MIN = 30
 
 interface State {
   trips: Trip[]
@@ -22,6 +28,8 @@ interface State {
   syncError: string | null
   /** Trip id from an invite link, waiting for the user to sign in. */
   pendingJoin: string | null
+  routing: RoutingState
+  routingError: string | null
 
   setView: (v: View) => void
   setBasemap: (b: BasemapKey) => void
@@ -30,6 +38,15 @@ interface State {
   setUser: (u: AuthUser | null) => void
   setSyncState: (s: SyncState, error?: string | null) => void
   setPendingJoin: (id: string | null) => void
+  setRouting: (s: RoutingState, error?: string | null) => void
+
+  // routes
+  /** Merge computed legs into the current trip's cache. */
+  addLegs: (legs: Record<string, Leg>) => void
+  /** Push activities later so each starts no earlier than previous end + travel minutes (never earlier). */
+  retimeDay: (dayIndex: number, travelMinutes: number[]) => void
+  /** Apply a new visiting order to a day; times are re-chained from the first stop. */
+  reorderDay: (dayIndex: number, orderedIds: string[]) => void
 
   // trips
   createTrip: (partial?: Partial<Trip>) => void
@@ -114,6 +131,8 @@ export const useStore = create<State>()(
         syncState: 'off',
         syncError: null,
         pendingJoin: null,
+        routing: 'idle',
+        routingError: null,
 
         setView: (view) => set({ view }),
         setBasemap: (basemap) => set({ basemap }),
@@ -122,6 +141,52 @@ export const useStore = create<State>()(
         setUser: (user) => set({ user }),
         setSyncState: (syncState, syncError = null) => set({ syncState, syncError }),
         setPendingJoin: (pendingJoin) => set({ pendingJoin }),
+        setRouting: (routing, routingError = null) => set({ routing, routingError }),
+
+        addLegs: (legs) =>
+          mutate((t) => {
+            const merged = { ...(t.legs ?? {}), ...legs }
+            const keys = Object.keys(merged)
+            if (keys.length > MAX_LEGS) {
+              keys
+                .sort((a, b) => merged[a].fetchedAt - merged[b].fetchedAt)
+                .slice(0, keys.length - MAX_LEGS)
+                .forEach((k) => delete merged[k])
+            }
+            t.legs = merged
+          }),
+        retimeDay: (dayIndex, travelMinutes) =>
+          mutate((t) => {
+            const day = t.days[dayIndex]
+            if (!day) return
+            for (let i = 1; i < day.activityIds.length; i++) {
+              const prev = t.activities[day.activityIds[i - 1]]
+              const cur = t.activities[day.activityIds[i]]
+              if (!prev || !cur) continue
+              const minStart = toMinutes(prev.end) + (travelMinutes[i] ?? 0)
+              const shift = minStart - toMinutes(cur.start)
+              if (shift <= 0) continue
+              const dur = duration(cur)
+              cur.start = toTime(minStart)
+              cur.end = toTime(minStart + dur)
+            }
+          }),
+        reorderDay: (dayIndex, orderedIds) =>
+          mutate((t) => {
+            const day = t.days[dayIndex]
+            if (!day) return
+            const same = orderedIds.length === day.activityIds.length && orderedIds.every((id) => day.activityIds.includes(id))
+            if (!same) return
+            day.activityIds = [...orderedIds]
+            for (let i = 1; i < day.activityIds.length; i++) {
+              const prev = t.activities[day.activityIds[i - 1]]
+              const cur = t.activities[day.activityIds[i]]
+              const dur = duration(cur)
+              const start = toMinutes(prev.end) + REORDER_GAP_MIN
+              cur.start = toTime(start)
+              cur.end = toTime(start + dur)
+            }
+          }),
 
         createTrip: (partial) => {
           const trip = emptyTrip({ ...ownerFields(get().user), ...partial })

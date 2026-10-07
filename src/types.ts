@@ -13,6 +13,27 @@ export interface Activity {
   lng?: number
   cost: number
   notes?: string
+  /** Google Places photo resource name (places/…/photos/…), rendered via photoUrl(). */
+  photo?: string
+}
+
+export type TravelMode = 'TRANSIT' | 'WALK' | 'DRIVE' | 'BICYCLE'
+
+export const TRAVEL_MODES: Record<TravelMode, { label: string; icon: string }> = {
+  TRANSIT: { label: '大眾運輸', icon: '🚇' },
+  WALK: { label: '步行', icon: '🚶' },
+  DRIVE: { label: '開車', icon: '🚗' },
+  BICYCLE: { label: '單車', icon: '🚲' },
+}
+
+/** A computed route between two consecutive stops (Google Routes API), cached on the trip. */
+export interface Leg {
+  mode: TravelMode
+  durationSec: number
+  distanceM: number
+  /** Encoded polyline of the actual path. */
+  polyline: string
+  fetchedAt: number
 }
 
 export interface Day {
@@ -36,6 +57,10 @@ export interface Trip {
   allowJoin?: boolean
   /** Epoch ms of the last local edit; used for last-write-wins sync. */
   updatedAt?: number
+  /** How we travel between stops (default TRANSIT). */
+  travelMode?: TravelMode
+  /** Route cache keyed by legKey(mode, from, to). */
+  legs?: Record<string, Leg>
 }
 
 export interface AuthUser {

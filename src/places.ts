@@ -6,7 +6,13 @@ export interface PlaceHit {
   address: string
   lat: number
   lng: number
+  /** Photo resource name, when Google has one. */
+  photo?: string
 }
+
+/** Image URL for a Places photo resource name (served via redirect to googleusercontent). */
+export const photoUrl = (photo: string, width = 200): string =>
+  `https://places.googleapis.com/v1/${photo}/media?maxWidthPx=${width}&key=${GOOGLE_MAPS_API_KEY}`
 
 export interface SearchOptions {
   /** Bias results towards this point (e.g. another stop of the same trip). */
@@ -29,7 +35,7 @@ async function searchGoogle(q: string, { near }: SearchOptions): Promise<PlaceHi
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location',
+      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.photos',
     },
     body: JSON.stringify({
       textQuery: q,
@@ -43,7 +49,12 @@ async function searchGoogle(q: string, { near }: SearchOptions): Promise<PlaceHi
     throw new Error(body?.error?.message ?? `Google Places ${res.status}`)
   }
   const data = (await res.json()) as {
-    places?: { displayName?: { text?: string }; formattedAddress?: string; location?: { latitude: number; longitude: number } }[]
+    places?: {
+      displayName?: { text?: string }
+      formattedAddress?: string
+      location?: { latitude: number; longitude: number }
+      photos?: { name: string }[]
+    }[]
   }
   return (data.places ?? [])
     .filter((p) => p.location)
@@ -52,6 +63,7 @@ async function searchGoogle(q: string, { near }: SearchOptions): Promise<PlaceHi
       address: p.formattedAddress ?? '',
       lat: p.location!.latitude,
       lng: p.location!.longitude,
+      photo: p.photos?.[0]?.name,
     }))
 }
 
