@@ -1,0 +1,19 @@
+import { initializeApp } from 'firebase/app'
+import { getAuth, GoogleAuthProvider } from 'firebase/auth'
+import { initializeFirestore } from 'firebase/firestore'
+
+// Public web app identifiers (not secrets) — access is controlled by firestore.rules.
+const firebaseConfig = {
+  apiKey: 'AIzaSyBkVB7HAo73_wUl1bVy9fpbuz2Xt1ywbHk',
+  authDomain: 'travel-planner-2734f.firebaseapp.com',
+  projectId: 'travel-planner-2734f',
+  storageBucket: 'travel-planner-2734f.firebasestorage.app',
+  messagingSenderId: '78732966306',
+  appId: '1:78732966306:web:ff0814b41790b5c86a9afb',
+}
+
+export const app = initializeApp(firebaseConfig)
+export const auth = getAuth(app)
+export const googleProvider = new GoogleAuthProvider()
+// Activities carry optional fields (lat/lng/notes) that may be undefined.
+export const db = initializeFirestore(app, { ignoreUndefinedProperties: true })

@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Activity, Trip } from './types'
+import type { Activity, AuthUser, Trip } from './types'
 import { sampleTrip } from './sample'
-import { duration, toMinutes, toTime, uid } from './utils'
+import { duration, longId, toMinutes, toTime, uid } from './utils'
 
 export type View = 'board' | 'map' | 'budget'
+export type SyncState = 'off' | 'syncing' | 'synced' | 'error'
 
 interface State {
   trips: Trip[]
@@ -14,9 +15,18 @@ interface State {
   /** When set, the next map click assigns coordinates to this activity. */
   pickingLocationFor: string | null
 
+  user: AuthUser | null
+  syncState: SyncState
+  syncError: string | null
+  /** Trip id from an invite link, waiting for the user to sign in. */
+  pendingJoin: string | null
+
   setView: (v: View) => void
   select: (id: string | null) => void
   setPickingLocation: (id: string | null) => void
+  setUser: (u: AuthUser | null) => void
+  setSyncState: (s: SyncState, error?: string | null) => void
+  setPendingJoin: (id: string | null) => void
 
   // trips
   createTrip: (partial?: Partial<Trip>) => void
@@ -27,6 +37,14 @@ interface State {
   addDay: () => void
   removeDay: (index: number) => void
 
+  // cloud sync helpers (called by sync.ts)
+  /** Give every local-only trip to `uid` (new id, owner, members). Untouched sample trip is dropped. */
+  adoptLocalTrips: (uid: string) => void
+  /** Merge a remote snapshot in; `removable` are ids we previously received from remote. */
+  applyRemoteTrips: (remote: Trip[], removable: Set<string>) => void
+  /** Forget everything local (after sign-out). */
+  resetLocal: () => void
+
   // activities
   addActivity: (dayIndex: number, partial?: Partial<Activity>) => string
   updateActivity: (id: string, patch: Partial<Activity>) => void
@@ -36,8 +54,11 @@ interface State {
   duplicateActivity: (id: string) => void
 }
 
+const ownerFields = (user: AuthUser | null): Partial<Trip> =>
+  user ? { ownerId: user.uid, members: [user.uid] } : {}
+
 const emptyTrip = (partial: Partial<Trip> = {}): Trip => ({
-  id: uid(),
+  id: longId(),
   name: '新的旅程',
   destination: '',
   startDate: new Date().toISOString().slice(0, 10),
@@ -45,6 +66,7 @@ const emptyTrip = (partial: Partial<Trip> = {}): Trip => ({
   budget: 0,
   days: [{ id: uid(), activityIds: [] }],
   activities: {},
+  updatedAt: Date.now(),
   ...partial,
 })
 
@@ -70,6 +92,7 @@ export const useStore = create<State>()(
             if (t.id !== s.currentTripId) return t
             const next = clone(t)
             fn(next)
+            next.updatedAt = Date.now()
             return next
           })
           return { trips }
@@ -81,26 +104,37 @@ export const useStore = create<State>()(
         view: 'board',
         selectedActivityId: null,
         pickingLocationFor: null,
+        user: null,
+        syncState: 'off',
+        syncError: null,
+        pendingJoin: null,
 
         setView: (view) => set({ view }),
         select: (selectedActivityId) => set({ selectedActivityId }),
         setPickingLocation: (pickingLocationFor) => set({ pickingLocationFor }),
+        setUser: (user) => set({ user }),
+        setSyncState: (syncState, syncError = null) => set({ syncState, syncError }),
+        setPendingJoin: (pendingJoin) => set({ pendingJoin }),
 
         createTrip: (partial) => {
-          const trip = emptyTrip(partial)
+          const trip = emptyTrip({ ...ownerFields(get().user), ...partial })
           set((s) => ({ trips: [...s.trips, trip], currentTripId: trip.id, selectedActivityId: null }))
         },
         switchTrip: (id) => set({ currentTripId: id, selectedActivityId: null, pickingLocationFor: null }),
         deleteTrip: (id) =>
           set((s) => {
             const trips = s.trips.filter((t) => t.id !== id)
-            if (trips.length === 0) trips.push(emptyTrip())
+            if (trips.length === 0) trips.push(emptyTrip(ownerFields(s.user)))
             const currentTripId = s.currentTripId === id ? trips[0].id : s.currentTripId
             return { trips, currentTripId, selectedActivityId: null }
           }),
         updateTrip: (patch) => mutate((t) => Object.assign(t, patch)),
         importTrip: (trip) => {
-          const incoming = { ...clone(trip), id: uid() }
+          const { ownerId: _o, members: _m, allowJoin: _j, ...rest } = clone(trip)
+          void _o
+          void _m
+          void _j
+          const incoming: Trip = { ...rest, id: longId(), updatedAt: Date.now(), ...ownerFields(get().user) }
           set((s) => ({ trips: [...s.trips, incoming], currentTripId: incoming.id, selectedActivityId: null }))
         },
         addDay: () => mutate((t) => t.days.push({ id: uid(), activityIds: [] })),
@@ -110,6 +144,55 @@ export const useStore = create<State>()(
             const [removed] = t.days.splice(index, 1)
             removed.activityIds.forEach((id) => delete t.activities[id])
           }),
+
+        adoptLocalTrips: (userId) =>
+          set((s) => {
+            let currentTripId = s.currentTripId
+            const trips = s.trips.map((t) => {
+              // The untouched sample stays local for now: applyRemoteTrips decides whether
+              // this user already has cloud trips (drop it) or is brand new (adopt it).
+              if (t.ownerId || (t.id === sampleTrip.id && !t.updatedAt)) return t
+              const adopted: Trip = { ...t, id: longId(), ownerId: userId, members: [userId], updatedAt: Date.now() }
+              if (t.id === currentTripId) currentTripId = adopted.id
+              return adopted
+            })
+            return { trips, currentTripId }
+          }),
+
+        applyRemoteTrips: (remote, removable) =>
+          set((s) => {
+            const remoteById = new Map(remote.map((t) => [t.id, t]))
+            const kept: Trip[] = []
+            for (const local of s.trips) {
+              const r = remoteById.get(local.id)
+              if (r) {
+                // Remote newer → take it; otherwise keep local edits but adopt the member list
+                // so a collaborator who just joined is not overwritten by our next write.
+                if ((r.updatedAt ?? 0) > (local.updatedAt ?? 0)) kept.push(r)
+                else if (r.members && r.members.join() !== (local.members ?? []).join()) kept.push({ ...local, members: r.members })
+                else kept.push(local)
+                remoteById.delete(local.id)
+              } else if (local.ownerId && removable.has(local.id)) {
+                continue // deleted remotely, or we were removed from it
+              } else if (!local.ownerId && local.id === sampleTrip.id && !local.updatedAt) {
+                // Untouched sample: a returning user already has trips → drop it;
+                // a brand-new user gets it as their first cloud trip.
+                if (remote.length > 0 || !s.user) continue
+                kept.push({ ...local, id: longId(), ...ownerFields(s.user), updatedAt: Date.now() })
+              } else {
+                kept.push(local)
+              }
+            }
+            remoteById.forEach((t) => kept.push(t))
+            if (kept.length === 0) kept.push(emptyTrip(ownerFields(s.user)))
+            const currentTripId = kept.some((t) => t.id === s.currentTripId) ? s.currentTripId : kept[0].id
+            return { trips: kept, currentTripId }
+          }),
+
+        resetLocal: () => {
+          const trip = emptyTrip()
+          set({ trips: [trip], currentTripId: trip.id, selectedActivityId: null, pickingLocationFor: null })
+        },
 
         addActivity: (dayIndex, partial = {}) => {
           const id = uid()

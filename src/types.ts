@@ -30,6 +30,19 @@ export interface Trip {
   budget: number
   days: Day[]
   activities: Record<string, Activity>
+  /** Cloud fields — present once the trip is stored in Firestore. */
+  ownerId?: string
+  members?: string[]
+  allowJoin?: boolean
+  /** Epoch ms of the last local edit; used for last-write-wins sync. */
+  updatedAt?: number
+}
+
+export interface AuthUser {
+  uid: string
+  name: string
+  email: string
+  photo?: string
 }
 
 export const CATEGORY_META: Record<Category, { label: string; color: string; icon: string }> = {

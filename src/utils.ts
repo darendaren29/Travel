@@ -6,6 +6,12 @@ export const uid = (): string =>
     ? crypto.randomUUID().slice(0, 8)
     : Math.random().toString(36).slice(2, 10)
 
+/** Long random id for documents that live in a shared Firestore collection. */
+export const longId = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID().replace(/-/g, '')
+    : Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('')
+
 /** "HH:MM" -> minutes since midnight */
 export const toMinutes = (t: string): number => {
   const [h, m] = t.split(':').map(Number)

@@ -5,9 +5,12 @@ import './styles.css'
 import App from './App'
 import { consumeSharedTrip } from './share'
 import { useStore } from './store'
+import { initAuth } from './auth'
 
 const shared = consumeSharedTrip()
 if (shared) useStore.getState().importTrip(shared)
+
+initAuth()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

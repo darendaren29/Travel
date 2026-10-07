@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useStore, useCurrentTrip, type View } from '../store'
 import { downloadJson, readJsonFile } from '../share'
+import { signIn, signOut } from '../auth'
 import ShareDialog from './ShareDialog'
 
 const VIEWS: { key: View; label: string; icon: string }[] = [
@@ -9,11 +10,19 @@ const VIEWS: { key: View; label: string; icon: string }[] = [
   { key: 'budget', label: '預算', icon: '💰' },
 ]
 
+const SYNC_LABEL = {
+  off: '',
+  syncing: '同步中…',
+  synced: '已同步',
+  error: '同步失敗',
+} as const
+
 export default function Header() {
   const trip = useCurrentTrip()
-  const { trips, view, setView, switchTrip, createTrip, deleteTrip, importTrip } = useStore()
+  const { trips, view, setView, switchTrip, createTrip, deleteTrip, importTrip, user, syncState, syncError, pendingJoin } = useStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  const isOwner = !trip.ownerId || trip.ownerId === user?.uid
 
   const onImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -27,7 +36,12 @@ export default function Header() {
   }
 
   const onDelete = () => {
-    if (confirm(`確定要刪除「${trip.name}」？此操作無法復原。`)) deleteTrip(trip.id)
+    const msg = isOwner ? `確定要刪除「${trip.name}」？此操作無法復原。` : `退出共編行程「${trip.name}」？`
+    if (confirm(msg)) deleteTrip(trip.id)
+  }
+
+  const onSignOut = () => {
+    if (confirm('登出後，這台裝置上的行程會清除（雲端資料保留）。確定登出？')) void signOut()
   }
 
   return (
@@ -39,14 +53,15 @@ export default function Header() {
           {trips.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
+              {t.ownerId && t.ownerId !== user?.uid ? '（共編）' : ''}
             </option>
           ))}
         </select>
         <button className="btn sm" onClick={() => createTrip()} title="建立新旅程">
-          ＋ 新旅程
+          ＋ <span className="lbl">新旅程</span>
         </button>
-        <button className="btn sm ghost danger" onClick={onDelete} title="刪除此旅程">
-          刪除
+        <button className="btn sm ghost danger" onClick={onDelete} title={isOwner ? '刪除此旅程' : '退出共編'}>
+          {isOwner ? '刪除' : '退出'}
         </button>
       </div>
 
@@ -66,12 +81,36 @@ export default function Header() {
         <button className="btn sm" onClick={() => downloadJson(trip)} title="匯出 JSON">
           📤 <span className="lbl">匯出</span>
         </button>
-        <button className="btn sm" onClick={() => setShareOpen(true)} title="分享連結">
+        <button className="btn sm" onClick={() => setShareOpen(true)} title="分享 / 邀請共編">
           🔗 <span className="lbl">分享</span>
         </button>
         <button className="btn sm" onClick={() => window.print()} title="列印">
           🖨️ <span className="lbl">列印</span>
         </button>
+      </div>
+
+      <div className="account">
+        {user ? (
+          <>
+            <span className={`sync ${syncState}`} title={syncError ?? SYNC_LABEL[syncState]}>
+              ● <span className="lbl">{SYNC_LABEL[syncState]}</span>
+            </span>
+            {user.photo ? (
+              <img className="avatar" src={user.photo} alt="" referrerPolicy="no-referrer" title={`${user.name}\n${user.email}`} />
+            ) : (
+              <span className="avatar initial" title={user.email}>
+                {user.name.slice(0, 1)}
+              </span>
+            )}
+            <button className="btn sm ghost" onClick={onSignOut}>
+              登出
+            </button>
+          </>
+        ) : (
+          <button className="btn sm primary" onClick={() => void signIn()} title={pendingJoin ? '登入後即可加入共編行程' : '登入後行程會同步到雲端'}>
+            {pendingJoin ? '登入以加入共編' : 'Google 登入'}
+          </button>
+        )}
       </div>
 
       {shareOpen && <ShareDialog trip={trip} onClose={() => setShareOpen(false)} />}
