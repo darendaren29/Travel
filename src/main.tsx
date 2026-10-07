@@ -12,6 +12,9 @@ if (shared) useStore.getState().importTrip(shared)
 
 initAuth()
 
+// Handy for debugging from the browser console during development.
+if (import.meta.env?.DEV) (window as unknown as { __store: typeof useStore }).__store = useStore
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

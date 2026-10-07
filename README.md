@@ -4,6 +4,17 @@
 
 **線上版本：https://travel-planner-2734f.web.app**
 
+## ✨ AI 產生行程（Gemini）
+
+登入後按「✨ AI 產生」，輸入目的地、天數、預算、偏好（例如「喜歡美食和動漫、第一天 14:00 抵達」），Gemini 會產生逐日行程，含時間、地點座標、預估費用與提示，直接變成可拖拉調整的看板。
+
+技術：透過 **Firebase AI Logic** 呼叫 Gemini（`firebase/ai` + `GoogleAIBackend`），API 金鑰不會出現在前端；回應以 `responseSchema` 強制為 JSON，再經 `src/ai.ts` 的 `toTrip()` 驗證與修正（時間格式、類別、座標、費用）。
+
+啟用步驟（一次性）：
+1. Firebase 主控台 → **AI Logic** → 開始使用 → 選 **Gemini Developer API**
+2. 依引導設定 **App Check**（reCAPTCHA Enterprise），把網站金鑰填到 `src/config.ts` 的 `RECAPTCHA_SITE_KEY`
+3. 模型名稱在 `src/config.ts` 的 `GEMINI_MODELS`，會依序嘗試
+
 ## 雲端功能
 
 - **Google 登入**：登入時會把本機的行程上傳；之後所有修改即時同步到 Firestore，手機與電腦自動一致
@@ -67,7 +78,9 @@ src/
   utils.ts          時間、金額、衝突偵測、距離計算
   share.ts          JSON 匯出入、分享連結
   sample.ts         預設範例（東京三日遊）
-  firebase.ts       Firebase 初始化（公開的 web 設定）
+  config.ts         App Check 金鑰、Gemini 模型清單
+  firebase.ts       Firebase 初始化（公開的 web 設定、App Check）
+  ai.ts             Gemini 行程產生（Firebase AI Logic、JSON schema、結果驗證）
   auth.ts           Google 登入/登出、邀請連結加入
   sync.ts           Firestore 雙向同步（即時讀取、防抖寫入）
   components/
@@ -78,5 +91,6 @@ src/
     MapView.tsx     地圖檢視
     BudgetView.tsx  預算檢視
     PrintView.tsx   列印版面
-    ShareDialog.tsx 分享連結對話框
+    ShareDialog.tsx 分享連結 / 邀請共編對話框
+    AiDialog.tsx    AI 產生行程對話框
 ```

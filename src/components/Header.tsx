@@ -3,6 +3,7 @@ import { useStore, useCurrentTrip, type View } from '../store'
 import { downloadJson, readJsonFile } from '../share'
 import { signIn, signOut } from '../auth'
 import ShareDialog from './ShareDialog'
+import AiDialog from './AiDialog'
 
 const VIEWS: { key: View; label: string; icon: string }[] = [
   { key: 'board', label: '行程', icon: '🗓️' },
@@ -22,6 +23,7 @@ export default function Header() {
   const { trips, view, setView, switchTrip, createTrip, deleteTrip, importTrip, user, syncState, syncError, pendingJoin } = useStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
   const isOwner = !trip.ownerId || trip.ownerId === user?.uid
 
   const onImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,6 +76,9 @@ export default function Header() {
       </nav>
 
       <div className="actions">
+        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 Gemini 產生行程">
+          ✨ <span className="lbl">AI 產生</span>
+        </button>
         <input ref={fileRef} type="file" accept="application/json" hidden onChange={onImport} />
         <button className="btn sm" onClick={() => fileRef.current?.click()} title="匯入 JSON">
           📥 <span className="lbl">匯入</span>
@@ -114,6 +119,7 @@ export default function Header() {
       </div>
 
       {shareOpen && <ShareDialog trip={trip} onClose={() => setShareOpen(false)} />}
+      {aiOpen && <AiDialog onClose={() => setAiOpen(false)} />}
     </header>
   )
 }

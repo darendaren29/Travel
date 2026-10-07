@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { initializeFirestore } from 'firebase/firestore'
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
+import { RECAPTCHA_SITE_KEY } from './config'
 
 // Public web app identifiers (not secrets) — access is controlled by firestore.rules.
 const firebaseConfig = {
@@ -13,6 +15,20 @@ const firebaseConfig = {
 }
 
 export const app = initializeApp(firebaseConfig)
+
+// App Check proves requests come from this web app (required by Firebase AI Logic).
+if (RECAPTCHA_SITE_KEY) {
+  if (import.meta.env?.DEV) {
+    // On localhost the SDK prints a debug token to the console; register it under
+    // Firebase console → App Check → Apps → ⋮ → Manage debug tokens.
+    ;(self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true
+  }
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  })
+}
+
 export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 // Activities carry optional fields (lat/lng/notes) that may be undefined.

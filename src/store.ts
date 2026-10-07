@@ -34,6 +34,8 @@ interface State {
   deleteTrip: (id: string) => void
   updateTrip: (patch: Partial<Omit<Trip, 'id' | 'days' | 'activities'>>) => void
   importTrip: (trip: Trip) => void
+  /** Replace the current trip's content (days, activities, metadata) keeping its id/ownership. */
+  replaceCurrentTrip: (content: Trip) => void
   addDay: () => void
   removeDay: (index: number) => void
 
@@ -136,6 +138,18 @@ export const useStore = create<State>()(
           void _j
           const incoming: Trip = { ...rest, id: longId(), updatedAt: Date.now(), ...ownerFields(get().user) }
           set((s) => ({ trips: [...s.trips, incoming], currentTripId: incoming.id, selectedActivityId: null }))
+        },
+        replaceCurrentTrip: (content) => {
+          mutate((t) => {
+            const { id: _id, ownerId: _o, members: _m, allowJoin: _j, updatedAt: _u, ...rest } = clone(content)
+            void _id
+            void _o
+            void _m
+            void _j
+            void _u
+            Object.assign(t, rest)
+          })
+          set({ selectedActivityId: null })
         },
         addDay: () => mutate((t) => t.days.push({ id: uid(), activityIds: [] })),
         removeDay: (index) =>

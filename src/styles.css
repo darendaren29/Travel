@@ -959,6 +959,63 @@ textarea {
   margin-top: 14px;
 }
 
+/* ---------- AI dialog ---------- */
+.btn.ai {
+  background: linear-gradient(135deg, #2563eb, #9333ea);
+  border-color: transparent;
+  color: #fff;
+}
+
+.btn.ai:hover {
+  filter: brightness(1.1);
+}
+
+.ai-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.ai-dialog h3 {
+  margin: 0;
+}
+
+.ai-dialog .actions {
+  margin-top: 4px;
+}
+
+.ai-error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.ai-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- Print ---------- */
 .print-only {
   display: none;
