@@ -552,6 +552,75 @@ textarea {
   padding: 1px 5px;
 }
 
+.card .nav {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.card:hover .nav,
+.card.selected .nav {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .card .nav {
+    opacity: 1;
+  }
+}
+
+.card .nav:hover {
+  background: var(--surface-2);
+}
+
+.day-head .route {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.day-head .route + .remove {
+  margin-left: 0;
+}
+
+.nav-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.nav-row a {
+  text-decoration: none;
+}
+
+.popup-nav {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.basemap-select {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.basemap-select select {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
 .card.overlay {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
   transform: rotate(2deg);

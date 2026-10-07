@@ -4,6 +4,20 @@ import L from 'leaflet'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORY_META, type Activity } from '../types'
 import { dayActivities, dayColor, formatMoney } from '../utils'
+import { BASEMAPS, resolveBasemap, type BasemapKey } from '../basemaps'
+import { navLinks } from '../nav'
+
+/** Tracks the OS dark-mode preference. */
+const usePrefersDark = () => {
+  const [dark, setDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (e: MediaQueryListEvent) => setDark(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return dark
+}
 
 const DEFAULT_CENTER: [number, number] = [25.034, 121.5645] // Taipei
 
@@ -20,8 +34,10 @@ const pinIcon = (color: string, n: number, selected: boolean) =>
 
 export default function MapView() {
   const trip = useCurrentTrip()
-  const { selectedActivityId, select, pickingLocationFor, setPickingLocation, updateActivity } = useStore()
+  const { selectedActivityId, select, pickingLocationFor, setPickingLocation, updateActivity, basemap, setBasemap } = useStore()
   const [hidden, setHidden] = useState<Set<number>>(new Set())
+  const prefersDark = usePrefersDark()
+  const tiles = resolveBasemap(basemap, prefersDark)
 
   const days = useMemo(
     () =>
@@ -87,8 +103,11 @@ export default function MapView() {
       <div className={`map-wrap ${pickingLocationFor ? 'picking' : ''}`}>
         <MapContainer center={DEFAULT_CENTER} zoom={12} scrollWheelZoom>
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            key={tiles.key}
+            attribution={tiles.attribution}
+            url={tiles.url}
+            maxZoom={tiles.maxZoom}
+            subdomains={tiles.subdomains ?? 'abc'}
           />
           <FitBounds points={points} tripId={trip.id} />
           <FlyToSelected activity={selected} />
@@ -127,6 +146,13 @@ export default function MapView() {
                               <br />💰 {formatMoney(a.cost, trip.currency)}
                             </>
                           )}
+                          <div className="popup-nav">
+                            {navLinks(trip, a).map((l) => (
+                              <a key={l.key} href={l.url} target="_blank" rel="noopener noreferrer">
+                                🧭 {l.name}
+                              </a>
+                            ))}
+                          </div>
                         </Popup>
                       </Marker>
                     ) : null,
@@ -138,6 +164,17 @@ export default function MapView() {
 
         <div className="map-legend">
           {pickingLocationFor && <div style={{ color: 'var(--warn)', fontWeight: 600 }}>點擊地圖設定位置</div>}
+          <label className="basemap-select">
+            底圖
+            <select value={basemap} onChange={(e) => setBasemap(e.target.value as BasemapKey)}>
+              <option value="auto">自動（跟隨深色模式）</option>
+              {BASEMAPS.map((b) => (
+                <option key={b.key} value={b.key}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {days.map((d) => (
             <label key={d.index}>
               <input type="checkbox" checked={!hidden.has(d.index)} onChange={() => toggleDay(d.index)} style={{ width: 'auto' }} />

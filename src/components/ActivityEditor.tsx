@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Activity } from '../types'
 import { duration, formatDuration } from '../utils'
+import { canNavigate, navLinks } from '../nav'
 
 interface GeoResult {
   display_name: string
@@ -168,6 +169,19 @@ export default function ActivityEditor() {
             )}
           </div>
         </div>
+
+        {canNavigate(a) && (
+          <div className="field">
+            <label>導航</label>
+            <div className="nav-row">
+              {navLinks(trip, a).map((l) => (
+                <a key={l.key} className="btn sm" href={l.url} target="_blank" rel="noopener noreferrer">
+                  🧭 {l.name}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="field">
           <label>備註</label>

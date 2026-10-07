@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { Activity, AuthUser, Trip } from './types'
 import { sampleTrip } from './sample'
 import { duration, longId, toMinutes, toTime, uid } from './utils'
+import type { BasemapKey } from './basemaps'
 
 export type View = 'board' | 'map' | 'budget'
 export type SyncState = 'off' | 'syncing' | 'synced' | 'error'
@@ -11,6 +12,7 @@ interface State {
   trips: Trip[]
   currentTripId: string
   view: View
+  basemap: BasemapKey
   selectedActivityId: string | null
   /** When set, the next map click assigns coordinates to this activity. */
   pickingLocationFor: string | null
@@ -22,6 +24,7 @@ interface State {
   pendingJoin: string | null
 
   setView: (v: View) => void
+  setBasemap: (b: BasemapKey) => void
   select: (id: string | null) => void
   setPickingLocation: (id: string | null) => void
   setUser: (u: AuthUser | null) => void
@@ -104,6 +107,7 @@ export const useStore = create<State>()(
         trips: [sampleTrip],
         currentTripId: sampleTrip.id,
         view: 'board',
+        basemap: 'auto',
         selectedActivityId: null,
         pickingLocationFor: null,
         user: null,
@@ -112,6 +116,7 @@ export const useStore = create<State>()(
         pendingJoin: null,
 
         setView: (view) => set({ view }),
+        setBasemap: (basemap) => set({ basemap }),
         select: (selectedActivityId) => set({ selectedActivityId }),
         setPickingLocation: (pickingLocationFor) => set({ pickingLocationFor }),
         setUser: (user) => set({ user }),
@@ -284,7 +289,7 @@ export const useStore = create<State>()(
     },
     {
       name: 'travel-planner-v1',
-      partialize: (s) => ({ trips: s.trips, currentTripId: s.currentTripId, view: s.view }),
+      partialize: (s) => ({ trips: s.trips, currentTripId: s.currentTripId, view: s.view, basemap: s.basemap }),
     },
   ),
 )

@@ -17,6 +17,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyb
 import { CSS } from '@dnd-kit/utilities'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORY_META, type Activity, type Trip } from '../types'
+import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
 import {
   addDays,
   dayActivities,
@@ -116,6 +117,7 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
   const color = dayColor(index)
   const { setNodeRef } = useDroppable({ id: dayId(index) })
   const cost = dayCost(trip, index)
+  const routeUrl = dayRouteUrl(trip, activities)
 
   const onRemove = () => {
     if (trip.days.length <= 1) return
@@ -129,6 +131,11 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
         <div className="title">
           <span className="dot" style={{ background: color }} />
           第 {index + 1} 天
+          {routeUrl && (
+            <button className="btn sm ghost route" onClick={() => openUrl(routeUrl)} title="在 Google 地圖開啟當日路線">
+              🧭 路線
+            </button>
+          )}
           <button className="btn sm ghost remove" onClick={onRemove} disabled={trip.days.length <= 1} title="刪除此天">
             ✕
           </button>
@@ -235,6 +242,7 @@ function CardView({
   const cls = ['card', selected && 'selected', conflict && 'conflict', dragging && 'dragging', overlay && 'overlay']
     .filter(Boolean)
     .join(' ')
+  const nav = canNavigate(a) ? navLinks(trip, a)[0] : null
   return (
     <div className={cls} style={{ '--cat': meta.color } as React.CSSProperties} onClick={() => select(a.id)}>
       <div className="bar" />
@@ -253,6 +261,19 @@ function CardView({
         </div>
       </div>
       {conflict && <span className="badge">衝突</span>}
+      {nav && !overlay && (
+        <button
+          className="nav"
+          title={`用 ${nav.name} 導航`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            openUrl(nav.url)
+          }}
+        >
+          🧭
+        </button>
+      )}
     </div>
   )
 }
