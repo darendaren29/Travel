@@ -10,9 +10,9 @@ export const RECAPTCHA_SITE_KEY = '6LeQ4eMtAAAAADmi3CEFh6sfwUKJNj-VOL1HoFF9'
  * "Maps JavaScript API" + "Places API (New)"). Empty = fall back to OpenStreetMap.
  * Trips to Korea always use OSM, since Google cannot route or search well there.
  */
-export const GOOGLE_MAPS_API_KEY = ''
+export const GOOGLE_MAPS_API_KEY = 'AIzaSyBrcqek1wsaNOaxxIVZdZqqwTIEcFr_HZ4'
 /** Map ID from Cloud Console → Google Maps Platform → Map Management (needed for AdvancedMarker). */
-export const GOOGLE_MAP_ID = ''
+export const GOOGLE_MAP_ID = 'a777c9bd17ed46cbbc2f8b8c'
 
 /**
  * Optional free CARTO basemaps key (https://carto.com/basemaps — no account needed,
