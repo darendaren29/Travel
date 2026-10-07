@@ -60,17 +60,17 @@ export default function Header() {
 
       <div className="actions">
         <input ref={fileRef} type="file" accept="application/json" hidden onChange={onImport} />
-        <button className="btn sm" onClick={() => fileRef.current?.click()}>
-          📥 匯入
+        <button className="btn sm" onClick={() => fileRef.current?.click()} title="匯入 JSON">
+          📥 <span className="lbl">匯入</span>
         </button>
-        <button className="btn sm" onClick={() => downloadJson(trip)}>
-          📤 匯出
+        <button className="btn sm" onClick={() => downloadJson(trip)} title="匯出 JSON">
+          📤 <span className="lbl">匯出</span>
         </button>
-        <button className="btn sm" onClick={() => setShareOpen(true)}>
-          🔗 分享
+        <button className="btn sm" onClick={() => setShareOpen(true)} title="分享連結">
+          🔗 <span className="lbl">分享</span>
         </button>
-        <button className="btn sm" onClick={() => window.print()}>
-          🖨️ 列印
+        <button className="btn sm" onClick={() => window.print()} title="列印">
+          🖨️ <span className="lbl">列印</span>
         </button>
       </div>
 
