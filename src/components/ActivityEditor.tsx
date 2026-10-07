@@ -3,12 +3,7 @@ import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Activity } from '../types'
 import { duration, formatDuration } from '../utils'
 import { canNavigate, navLinks } from '../nav'
-
-interface GeoResult {
-  display_name: string
-  lat: string
-  lon: string
-}
+import { searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
 
 export default function ActivityEditor() {
   const trip = useCurrentTrip()
@@ -17,7 +12,7 @@ export default function ActivityEditor() {
   const activity = selectedActivityId ? trip.activities[selectedActivityId] : undefined
 
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<GeoResult[]>([])
+  const [results, setResults] = useState<PlaceHit[]>([])
   const [searching, setSearching] = useState(false)
 
   useEffect(() => {
@@ -30,24 +25,28 @@ export default function ActivityEditor() {
   const dayIndex = trip.days.findIndex((d) => d.activityIds.includes(a.id))
   const patch = (p: Partial<Activity>) => updateActivity(a.id, p)
 
+  const googleSearch = useGooglePlaces(trip.destination)
+
   const search = async () => {
     if (!query.trim()) return
     setSearching(true)
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=zh-TW&q=${encodeURIComponent(query)}`
-      const res = await fetch(url, { headers: { Accept: 'application/json' } })
-      setResults((await res.json()) as GeoResult[])
-    } catch {
-      alert('搜尋失敗，請檢查網路連線。')
+      // Bias towards somewhere already placed in this trip (the activity itself, else any located stop).
+      const anchor = a.lat != null && a.lng != null ? a : Object.values(trip.activities).find((x) => x.lat != null && x.lng != null)
+      const near = anchor && anchor.lat != null && anchor.lng != null ? { lat: anchor.lat, lng: anchor.lng } : undefined
+      const hits = await searchPlaces(query, trip.destination, { near })
+      setResults(hits)
+      if (hits.length === 0) alert('找不到符合的地點，試試加上城市名稱。')
+    } catch (e) {
+      alert(`搜尋失敗：${e instanceof Error ? e.message : '請檢查網路連線'}`)
     } finally {
       setSearching(false)
     }
   }
 
-  const pick = (r: GeoResult) => {
-    const short = r.display_name.split(',')[0].trim()
-    patch({ location: short, lat: Number(r.lat), lng: Number(r.lon) })
-    setQuery(short)
+  const pick = (r: PlaceHit) => {
+    patch({ location: r.name, lat: r.lat, lng: r.lng })
+    setQuery(r.name)
     setResults([])
   }
 
@@ -137,7 +136,7 @@ export default function ActivityEditor() {
           <div className="row">
             <input
               value={query}
-              placeholder="輸入地名後搜尋"
+              placeholder={googleSearch ? '輸入店名或景點（Google 搜尋）' : '輸入地名後搜尋'}
               onChange={(e) => setQuery(e.target.value)}
               onBlur={() => query !== a.location && patch({ location: query })}
               onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -150,7 +149,8 @@ export default function ActivityEditor() {
             <div className="geo-results">
               {results.map((r, i) => (
                 <button key={i} onClick={() => pick(r)}>
-                  {r.display_name}
+                  <b>{r.name}</b>
+                  {r.address && r.address !== r.name && <span className="addr"> · {r.address}</span>}
                 </button>
               ))}
             </div>

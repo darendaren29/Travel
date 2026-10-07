@@ -2,10 +2,32 @@ import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { useStore, useCurrentTrip } from '../store'
-import { CATEGORY_META, type Activity } from '../types'
+import { CATEGORY_META, type Activity, type Trip } from '../types'
 import { dayActivities, dayColor, formatMoney } from '../utils'
 import { BASEMAPS, resolveBasemap, type BasemapKey } from '../basemaps'
 import { navLinks } from '../nav'
+import { useGooglePlaces } from '../places'
+import GoogleMapPane from './GoogleMap'
+
+export interface DayGroup {
+  index: number
+  color: string
+  activities: Activity[]
+}
+
+interface PaneProps {
+  trip: Trip
+  days: DayGroup[]
+  hidden: Set<number>
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+  picking: boolean
+  onPick: (lat: number, lng: number) => void
+}
+
+const DEFAULT_CENTER: [number, number] = [25.034, 121.5645] // Taipei
+
+const hasGeo = (a: Activity): a is Activity & { lat: number; lng: number } => a.lat != null && a.lng != null
 
 /** Tracks the OS dark-mode preference. */
 const usePrefersDark = () => {
@@ -19,39 +41,16 @@ const usePrefersDark = () => {
   return dark
 }
 
-const DEFAULT_CENTER: [number, number] = [25.034, 121.5645] // Taipei
-
-const hasGeo = (a: Activity): a is Activity & { lat: number; lng: number } => a.lat != null && a.lng != null
-
-const pinIcon = (color: string, n: number, selected: boolean) =>
-  L.divIcon({
-    className: '',
-    html: `<div class="marker-pin ${selected ? 'selected' : ''}" style="background:${color}"><span>${n}</span></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 26],
-    popupAnchor: [0, -26],
-  })
-
 export default function MapView() {
   const trip = useCurrentTrip()
   const { selectedActivityId, select, pickingLocationFor, setPickingLocation, updateActivity, basemap, setBasemap } = useStore()
   const [hidden, setHidden] = useState<Set<number>>(new Set())
-  const prefersDark = usePrefersDark()
-  const tiles = resolveBasemap(basemap, prefersDark)
+  // Google Maps everywhere except Korea (and only when a key is configured).
+  const google = useGooglePlaces(trip.destination)
 
-  const days = useMemo(
-    () =>
-      trip.days.map((_, i) => ({
-        index: i,
-        color: dayColor(i),
-        activities: dayActivities(trip, i),
-      })),
+  const days = useMemo<DayGroup[]>(
+    () => trip.days.map((_, i) => ({ index: i, color: dayColor(i), activities: dayActivities(trip, i) })),
     [trip],
-  )
-
-  const points = useMemo(
-    () => days.filter((d) => !hidden.has(d.index)).flatMap((d) => d.activities.filter(hasGeo).map((a) => [a.lat, a.lng] as [number, number])),
-    [days, hidden],
   )
 
   const toggleDay = (i: number) =>
@@ -69,7 +68,15 @@ export default function MapView() {
     select(pickingLocationFor)
   }
 
-  const selected = selectedActivityId ? trip.activities[selectedActivityId] : undefined
+  const paneProps: PaneProps = {
+    trip,
+    days,
+    hidden,
+    selectedId: selectedActivityId,
+    onSelect: select,
+    picking: Boolean(pickingLocationFor),
+    onPick,
+  }
 
   return (
     <div className="map-layout">
@@ -101,80 +108,23 @@ export default function MapView() {
       </aside>
 
       <div className={`map-wrap ${pickingLocationFor ? 'picking' : ''}`}>
-        <MapContainer center={DEFAULT_CENTER} zoom={12} scrollWheelZoom>
-          <TileLayer
-            key={tiles.key}
-            attribution={tiles.attribution}
-            url={tiles.url}
-            maxZoom={tiles.maxZoom}
-            subdomains={tiles.subdomains ?? 'abc'}
-          />
-          <FitBounds points={points} tripId={trip.id} />
-          <FlyToSelected activity={selected} />
-          <ClickCapture enabled={Boolean(pickingLocationFor)} onPick={onPick} />
-
-          {days
-            .filter((d) => !hidden.has(d.index))
-            .map((d) => {
-              const geo = d.activities.filter(hasGeo)
-              return (
-                <div key={d.index}>
-                  {geo.length > 1 && (
-                    <Polyline positions={geo.map((a) => [a.lat, a.lng])} pathOptions={{ color: d.color, weight: 3, opacity: 0.7, dashArray: '6 6' }} />
-                  )}
-                  {d.activities.map((a, n) =>
-                    hasGeo(a) ? (
-                      <Marker
-                        key={a.id}
-                        position={[a.lat, a.lng]}
-                        icon={pinIcon(d.color, n + 1, selectedActivityId === a.id)}
-                        eventHandlers={{ click: () => select(a.id) }}
-                      >
-                        <Popup>
-                          <b>
-                            {CATEGORY_META[a.category].icon} {a.title}
-                          </b>
-                          <br />
-                          第 {d.index + 1} 天 · {a.start} – {a.end}
-                          {a.location && (
-                            <>
-                              <br />📍 {a.location}
-                            </>
-                          )}
-                          {a.cost > 0 && (
-                            <>
-                              <br />💰 {formatMoney(a.cost, trip.currency)}
-                            </>
-                          )}
-                          <div className="popup-nav">
-                            {navLinks(trip, a).map((l) => (
-                              <a key={l.key} href={l.url} target="_blank" rel="noopener noreferrer">
-                                🧭 {l.name}
-                              </a>
-                            ))}
-                          </div>
-                        </Popup>
-                      </Marker>
-                    ) : null,
-                  )}
-                </div>
-              )
-            })}
-        </MapContainer>
+        {google ? <GoogleMapPane {...paneProps} /> : <LeafletPane {...paneProps} />}
 
         <div className="map-legend">
           {pickingLocationFor && <div style={{ color: 'var(--warn)', fontWeight: 600 }}>點擊地圖設定位置</div>}
-          <label className="basemap-select">
-            底圖
-            <select value={basemap} onChange={(e) => setBasemap(e.target.value as BasemapKey)}>
-              <option value="auto">自動（跟隨深色模式）</option>
-              {BASEMAPS.map((b) => (
-                <option key={b.key} value={b.key}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!google && (
+            <label className="basemap-select">
+              底圖
+              <select value={basemap} onChange={(e) => setBasemap(e.target.value as BasemapKey)}>
+                <option value="auto">自動（跟隨深色模式）</option>
+                {BASEMAPS.map((b) => (
+                  <option key={b.key} value={b.key}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {days.map((d) => (
             <label key={d.index}>
               <input type="checkbox" checked={!hidden.has(d.index)} onChange={() => toggleDay(d.index)} style={{ width: 'auto' }} />
@@ -184,6 +134,75 @@ export default function MapView() {
         </div>
       </div>
     </div>
+  )
+}
+
+const pinIcon = (color: string, n: number, selected: boolean) =>
+  L.divIcon({
+    className: '',
+    html: `<div class="marker-pin ${selected ? 'selected' : ''}" style="background:${color}"><span>${n}</span></div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 26],
+    popupAnchor: [0, -26],
+  })
+
+/** Leaflet / OpenStreetMap implementation (Korea, or no Google key). */
+function LeafletPane({ trip, days, hidden, selectedId, onSelect, picking, onPick }: PaneProps) {
+  const basemap = useStore((s) => s.basemap)
+  const prefersDark = usePrefersDark()
+  const tiles = resolveBasemap(basemap, prefersDark)
+  const visible = days.filter((d) => !hidden.has(d.index))
+  const points = visible.flatMap((d) => d.activities.filter(hasGeo).map((a) => [a.lat, a.lng] as [number, number]))
+  const selected = selectedId ? trip.activities[selectedId] : undefined
+
+  return (
+    <MapContainer center={DEFAULT_CENTER} zoom={12} scrollWheelZoom>
+      <TileLayer key={tiles.key} attribution={tiles.attribution} url={tiles.url} maxZoom={tiles.maxZoom} subdomains={tiles.subdomains ?? 'abc'} />
+      {tiles.overlay && <TileLayer key={`${tiles.key}-labels`} url={tiles.overlay} maxZoom={tiles.maxZoom} zIndex={2} />}
+      <FitBounds points={points} tripId={trip.id} />
+      <FlyToSelected activity={selected} />
+      <ClickCapture enabled={picking} onPick={onPick} />
+
+      {visible.map((d) => {
+        const geo = d.activities.filter(hasGeo)
+        return (
+          <div key={d.index}>
+            {geo.length > 1 && (
+              <Polyline positions={geo.map((a) => [a.lat, a.lng])} pathOptions={{ color: d.color, weight: 3, opacity: 0.7, dashArray: '6 6' }} />
+            )}
+            {d.activities.map((a, n) =>
+              hasGeo(a) ? (
+                <Marker key={a.id} position={[a.lat, a.lng]} icon={pinIcon(d.color, n + 1, selectedId === a.id)} eventHandlers={{ click: () => onSelect(a.id) }}>
+                  <Popup>
+                    <b>
+                      {CATEGORY_META[a.category].icon} {a.title}
+                    </b>
+                    <br />第 {d.index + 1} 天 · {a.start} – {a.end}
+                    {a.location && (
+                      <>
+                        <br />📍 {a.location}
+                      </>
+                    )}
+                    {a.cost > 0 && (
+                      <>
+                        <br />💰 {formatMoney(a.cost, trip.currency)}
+                      </>
+                    )}
+                    <div className="popup-nav">
+                      {navLinks(trip, a).map((l) => (
+                        <a key={l.key} href={l.url} target="_blank" rel="noopener noreferrer">
+                          🧭 {l.name}
+                        </a>
+                      ))}
+                    </div>
+                  </Popup>
+                </Marker>
+              ) : null,
+            )}
+          </div>
+        )
+      })}
+    </MapContainer>
   )
 }
 

@@ -5,5 +5,20 @@
  */
 export const RECAPTCHA_SITE_KEY = '6LeQ4eMtAAAAADmi3CEFh6sfwUKJNj-VOL1HoFF9'
 
+/**
+ * Google Maps Platform browser key (restrict it to this site's domains and to
+ * "Maps JavaScript API" + "Places API (New)"). Empty = fall back to OpenStreetMap.
+ * Trips to Korea always use OSM, since Google cannot route or search well there.
+ */
+export const GOOGLE_MAPS_API_KEY = ''
+/** Map ID from Cloud Console → Google Maps Platform → Map Management (needed for AdvancedMarker). */
+export const GOOGLE_MAP_ID = ''
+
+/**
+ * Optional free CARTO basemaps key (https://carto.com/basemaps — no account needed,
+ * 5M tiles/month non-commercial). Leave empty to hide the CARTO basemap options.
+ */
+export const CARTO_API_KEY = ''
+
 /** Gemini models to try in order; the first one the project can use wins. */
 export const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3-flash', 'gemini-2.5-flash']

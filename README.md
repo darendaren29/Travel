@@ -42,7 +42,7 @@
 | 檢視 | 說明 |
 | --- | --- |
 | 🗓️ **行程看板** | 每天一欄，活動卡片可**拖拉**調整順序或移到其他天；移動後自動依前一個活動的結束時間重新排程。欄頂的 24 小時色帶顯示當日時間分布；卡片之間顯示空檔、時間重疊警告與景點間距離。 |
-| 🗺️ **互動地圖** | Leaflet，依天數上色的編號標記與路線，可切換顯示的天數。**底圖可選**：簡潔（CARTO）、標準 OSM、深色、衛星（Esri）、地形（OpenTopoMap）、日本地理院；「自動」會跟隨深色模式。全部免費、免金鑰。編輯活動時可用地名搜尋（Nominatim）或直接在地圖上點選位置。 |
+| 🗺️ **互動地圖** | **非韓國行程用 Google Maps**（`@vis.gl/react-google-maps`：編號標記、虛線路線、InfoWindow、地圖/衛星切換），地名搜尋走 **Google Places API (New)**，會以行程內已定位的景點做鄰近偏好。**韓國行程或未設定金鑰時用 Leaflet + OpenStreetMap**，搜尋走 Nominatim。金鑰與 Map ID 設在 `src/config.ts`。<br>Leaflet 模式下**底圖可選**：標準 OSM、簡潔淺灰（Esri）、深色（Esri）、衛星（Esri）、地形（OpenTopoMap）、日本地理院；「自動」會跟隨深色模式。全部免費、免金鑰。（CARTO 底圖自 2026-09 起需金鑰，在 `src/config.ts` 填入免費的 `CARTO_API_KEY` 後才會出現。）編輯活動時可用地名搜尋（Nominatim）或直接在地圖上點選位置。 |
 | 🧭 **一鍵導航** | 每張卡片、編輯面板與地圖標記都有導航按鈕，依目的地自動挑選：**韓國 → Kakao Map / Naver Map**（Google 在韓國無法規劃路線），其他地區 → Google 地圖，iPhone/Mac 另有 Apple 地圖。每天欄位的「🧭 路線」會把當天所有已定位景點串成一條 Google 地圖大眾運輸路線。純深層連結，不需 API 金鑰。 |
 | 💰 **預算分析** | 總花費 / 預算 / 剩餘 / 每日平均 KPI，依類別的環圖與依天的堆疊長條圖，並附表格。 |
 | 📤 **匯出 / 分享** | 匯出或匯入 JSON 備份、產生含完整行程的分享連結（壓縮編碼在網址中）、列印版面。 |
@@ -78,7 +78,8 @@ src/
   store.ts          Zustand store：旅程、活動 CRUD、拖拉重排
   utils.ts          時間、金額、衝突偵測、距離計算
   share.ts          JSON 匯出入、分享連結
-  nav.ts            導航深層連結（Google / Apple / Kakao / Naver）、當日路線
+  nav.ts            導航深層連結（Google / Apple / Kakao / Naver）、當日路線、韓國偵測
+  places.ts         地名搜尋（Google Places New ↔ Nominatim 自動切換）
   basemaps.ts       免費底圖清單與深色模式對應
   sample.ts         預設範例（東京三日遊）
   config.ts         App Check 金鑰、Gemini 模型清單
@@ -91,7 +92,8 @@ src/
     TripBar.tsx     旅程基本資料
     Board.tsx       每日看板與拖拉
     ActivityEditor.tsx  活動編輯側欄（含地點搜尋）
-    MapView.tsx     地圖檢視
+    MapView.tsx     地圖檢視（側欄、圖例；Leaflet 實作）
+    GoogleMap.tsx   Google Maps 實作
     BudgetView.tsx  預算檢視
     PrintView.tsx   列印版面
     ShareDialog.tsx 分享連結 / 邀請共編對話框
