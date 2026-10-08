@@ -77,8 +77,9 @@ jobs:
           deploy() { npx --yes firebase-tools@14 deploy --only functions --project $P --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/functions-deploy.log"; return "${PIPESTATUS[0]}"; }
           # Newly enabled APIs can take a minute to propagate, so retry once.
           if ! deploy && ! { sleep 90; deploy; }; then
-            # Surface the tail of the output as an annotation (readable without opening the log).
-            msg=$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/functions-deploy.log" | grep -v '^\s*$' | tail -n 25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-            echo "::error title=Functions deploy failed::$msg"
+            # Surface the key output lines as annotations (one per line; readable without the log).
+            sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/\r/\n/g' "$RUNNER_TEMP/functions-deploy.log" \
+              | grep -iE 'error|fail|denied|permission|missing|invalid|secret' | grep -v '^\s*$' | tail -n 8 \
+              | while IFS= read -r line; do echo "::error::${line:0:900}"; done
             exit 1
           fi
