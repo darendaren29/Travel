@@ -68,12 +68,16 @@ jobs:
           if ! gcloud secrets describe ANTHROPIC_API_KEY --project $P >/dev/null 2>&1; then
             step gcloud secrets create ANTHROPIC_API_KEY --replication-policy=automatic --project $P --quiet
           fi
-          # Add a version only when the key changed, so redeploys don't pile up versions.
-          if [ "$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project $P 2>/dev/null)" != "$ANTHROPIC_API_KEY" ]; then
+          # Add a version when there is no enabled one or the key changed (so redeploys don't pile up versions).
+          enabled=$(gcloud secrets versions list ANTHROPIC_API_KEY --filter='state:ENABLED' --format='value(name)' --project $P 2>&1 | head -n 1)
+          current=$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project $P 2>/dev/null || true)
+          if [ -z "$enabled" ] || [ "$current" != "$ANTHROPIC_API_KEY" ]; then
             printf '%s' "$ANTHROPIC_API_KEY" > "$RUNNER_TEMP/anthropic-key"
             step gcloud secrets versions add ANTHROPIC_API_KEY --data-file="$RUNNER_TEMP/anthropic-key" --project $P --quiet
             rm -f "$RUNNER_TEMP/anthropic-key"
           fi
+          # Version states only (never the value), visible as an annotation.
+          echo "::notice title=ANTHROPIC_API_KEY versions::$(gcloud secrets versions list ANTHROPIC_API_KEY --format='value(name,state)' --project $P 2>&1 | head -n 5 | tr '\n' ' ') | key length ${#ANTHROPIC_API_KEY}"
           deploy() { npx --yes firebase-tools@14 deploy --only functions --project $P --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/functions-deploy.log"; return "${PIPESTATUS[0]}"; }
           # Newly enabled APIs can take a minute to propagate, so retry once.
           if ! deploy && ! { sleep 90; deploy; }; then
