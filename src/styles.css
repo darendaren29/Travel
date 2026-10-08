@@ -542,7 +542,7 @@ textarea {
   left: 50%;
   top: 100%;
   transform: translate(-50%, -50%);
-  z-index: 900; /* above the sticky header (z 800) */
+  z-index: 5; /* below the header's ⋯ menu… */
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -558,6 +558,10 @@ textarea {
   box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+}
+
+.chrome.is-compact .chrome-tab {
+  z-index: 900; /* …but above the slim header, which it overlaps in compact mode */
 }
 
 .chrome-tab::before {
@@ -2944,8 +2948,15 @@ textarea {
     order: 3;
   }
 
+  /* let a long trip name shrink so ✨ and ⋯ stay on the same row */
+  .header .trip-meta {
+    flex: 1 1 0;
+  }
+
   .header .trip-meta select {
-    flex: 1;
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
     max-width: none;
   }
 
@@ -3133,6 +3144,15 @@ textarea {
 @media (max-width: 640px) {
   .more {
     display: block;
+  }
+
+  /* even if the actions wrap to their own row, keep ⋯ (and its menu) at the right edge */
+  .header .actions {
+    margin-left: auto;
+  }
+
+  .more-menu {
+    max-width: calc(100vw - 24px);
   }
 
   .header .actions > .btn:not(.ai),
