@@ -53,4 +53,10 @@ jobs:
         continue-on-error: true
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
-        run: npx --yes firebase-tools@14 deploy --only functions --project travel-planner-2734f --non-interactive --force
+        run: |
+          # The Functions deploy checks billing (Cloud Billing API); the function calls Claude on Vertex AI.
+          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
+          gcloud services enable cloudbilling.googleapis.com aiplatform.googleapis.com --project travel-planner-2734f --quiet
+          deploy() { npx --yes firebase-tools@14 deploy --only functions --project travel-planner-2734f --non-interactive --force; }
+          # Newly enabled APIs can take a minute to propagate, so retry once.
+          deploy || { sleep 90; deploy; }
