@@ -169,11 +169,14 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
   }
 
   return (
-    <section className={`day-col ${isOver ? 'over' : ''}`} style={{ '--day': color } as React.CSSProperties}>
+    <section className={`day-col ${isOver ? 'over' : ''}`} style={{ '--day': color, '--i': index } as React.CSSProperties}>
       <header className="day-head">
         <div className="title">
-          <span className="day-badge">{index + 1}</span>
-          第 {index + 1} 天
+          <span className="day-badge" aria-hidden="true">
+            <small>DAY</small>
+            {String(index + 1).padStart(2, '0')}
+          </span>
+          <span className="day-name">第 {index + 1} 天</span>
           <span className="day-tools">
             {routeUrl && (
               <button className="btn sm ghost" onClick={() => openUrl(routeUrl)} title="在 Google 地圖開啟當日路線">

@@ -51,13 +51,14 @@ export default function Header() {
     <header className="header">
       <div className="brand">
         <span className="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M15.5 8.5 13.4 13.4 8.5 15.5 10.6 10.6z" fill="currentColor" stroke="none" />
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9.2" />
+            <circle cx="12" cy="12" r="6.6" strokeDasharray="1.2 1.8" />
+            <path d="M15.2 8.8 13.1 13.1 8.8 15.2 10.9 10.9z" fill="currentColor" stroke="none" />
           </svg>
         </span>
         <span className="name">
-          旅程手帳<small>Trip Planner</small>
+          旅程手帳<small>Trip Planner · Par Avion</small>
         </span>
       </div>
 
