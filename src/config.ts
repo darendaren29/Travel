@@ -37,5 +37,17 @@ export const AI_BACKENDS: ('vertex' | 'developer')[] = ['vertex', 'developer']
 /** Vertex AI location; 'global' serves the most models. */
 export const VERTEX_LOCATION = 'global'
 
+/**
+ * AI itinerary providers offered in the dialog:
+ * - 'gemini': Firebase AI Logic, called straight from the browser (see AI_BACKENDS above).
+ * - 'claude': Claude on Vertex AI through the `claudeItinerary` Cloud Function (functions/).
+ *   Needs Claude enabled in Vertex AI → Model Garden; billed to the Blaze billing account.
+ */
+export type AiProvider = 'gemini' | 'claude'
+export const AI_PROVIDERS: { id: AiProvider; label: string; wait: string }[] = [
+  { id: 'gemini', label: 'Gemini', wait: '約 10–30 秒' },
+  { id: 'claude', label: 'Claude', wait: '約 30 秒–2 分鐘' },
+]
+
 /** Longest itinerary the AI dialog will request in one go. */
 export const AI_MAX_DAYS = 21

@@ -15,7 +15,7 @@
 
 一次性設定：Firebase 主控台啟用 Storage；並在 IAM 為 `service-<專案編號>@gcp-sa-firebasestorage.iam.gserviceaccount.com` 加上「Firebase Rules Firestore Service Agent」角色（跨服務規則需要，非互動部署不會自動授予）。CORS（`storage.cors.json`）由 GitHub Actions 套用。
 
-## ✨ AI 產生行程（Gemini）
+## ✨ AI 產生行程（Gemini / Claude）
 
 登入後按「✨ AI 產生」，輸入目的地、天數、預算、偏好（例如「喜歡美食和動漫、第一天 14:00 抵達」），Gemini 會產生逐日行程，含時間、地點座標、預估費用與提示，直接變成可拖拉調整的看板。
 
@@ -25,6 +25,22 @@
 1. Firebase 主控台 → **AI Logic** → 開始使用；建議同時啟用 **Vertex AI Gemini API**（Blaze 帳單後付）
 2. 依引導設定 **App Check**（reCAPTCHA Enterprise），把網站金鑰填到 `src/config.ts` 的 `RECAPTCHA_SITE_KEY`
 3. `src/config.ts`：`AI_BACKENDS`（預設先 Vertex AI、再 Developer API）與 `GEMINI_MODELS` 依序嘗試——模型不存在／限流／忙碌會換下一個模型；供應方未啟用或沒有帳單（例如 AI Studio 預付額度用完）會換下一個供應方。失敗時對話框的「技術細節」列出每次嘗試的原始回應。
+
+## 🤖 AI 產生行程（Claude）
+
+AI 對話框上方可切換 **Gemini / Claude**（會記住上次的選擇）。Claude 走 **Vertex AI**（Google Cloud 上的 Claude），由 Cloud Function `claudeItinerary`（`functions/`）呼叫：
+
+```
+瀏覽器 ── httpsCallable（需登入）──► Cloud Function（asia-east1）──► Vertex AI · Claude Opus 5.5
+                                     服務帳戶驗證，沒有 API 金鑰
+```
+
+- 與 Gemini 共用同一份提示與輸出格式（`src/aiPrompt.ts`），Claude 端用 structured outputs（JSON schema）保證回傳格式，前端再經同一個 `toTrip()` 修正
+- 函式只接受結構化欄位（目的地、天數…），不能被拿來當通用 Claude 代理；每位使用者每天最多 10 次（`CLAUDE_DAILY_LIMIT`，記錄在 Firestore `aiUsage/{uid}`，用戶端無權讀寫）
+- 若 Claude Opus 5.5 婉拒請求，SDK 中介層會自動改用 Claude Opus 4.8 重試
+- 費用記在 Firebase 專案的 Blaze 帳單（Vertex AI 計價），一次產生約數千到兩萬多 token
+
+一次性設定：Google Cloud 主控台 → **Vertex AI → Model Garden** → 搜尋「Claude Opus 5.5」→ **啟用**（同意條款）。部署由 GitHub Actions 的「Deploy Cloud Functions」步驟完成（第一次會自動啟用 Cloud Functions / Cloud Build / Artifact Registry API，需要幾分鐘）。
 
 ## 雲端功能
 
@@ -44,7 +60,7 @@
 
 ### 部署
 
-推送到 GitHub 後，`.github/workflows/deploy.yml` 會自動 build 並部署 Hosting 與 Firestore 規則。需要在 repo 的 Secrets 設定 `FIREBASE_SERVICE_ACCOUNT`（Firebase 專案設定 → 服務帳戶 → 產生私密金鑰的 JSON）。
+推送到 GitHub 後，`.github/workflows/deploy.yml` 會自動 build 並部署 Hosting、Firestore 規則、Storage 規則與 Cloud Functions。需要在 repo 的 Secrets 設定 `FIREBASE_SERVICE_ACCOUNT`（Firebase 專案設定 → 服務帳戶 → 產生私密金鑰的 JSON）。
 
 本機手動部署：`npm run build && npx firebase-tools deploy`（需先 `npx firebase-tools login`）。
 
@@ -82,7 +98,7 @@ npm run typecheck  # TypeScript 檢查
 
 ## 技術
 
-React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Hosting）
+React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Storage、Hosting、Cloud Functions）· Firebase AI Logic（Gemini）· Anthropic SDK（Claude on Vertex AI）
 
 ## 專案結構
 
@@ -100,7 +116,8 @@ src/
   sample.ts         預設範例（東京三日遊）
   config.ts         App Check 金鑰、Gemini 模型清單
   firebase.ts       Firebase 初始化（公開的 web 設定、App Check）
-  ai.ts             Gemini 行程產生（Firebase AI Logic、JSON schema、結果驗證）
+  aiPrompt.ts       AI 行程提示詞與輸出格式（前端與 Cloud Function 共用）
+  ai.ts             AI 行程產生：Gemini（Firebase AI Logic）、Claude（呼叫 Cloud Function）、結果驗證
   auth.ts           Google 登入/登出、邀請連結加入
   sync.ts           Firestore 雙向同步（即時讀取、防抖寫入）
   components/
@@ -113,5 +130,7 @@ src/
     BudgetView.tsx  預算檢視
     PrintView.tsx   列印版面
     ShareDialog.tsx 分享連結 / 邀請共編對話框
-    AiDialog.tsx    AI 產生行程對話框
+    AiDialog.tsx    AI 產生行程對話框（Gemini / Claude 切換）
+functions/
+  src/index.ts      claudeItinerary：Claude on Vertex AI（登入檢查、每日上限、JSON schema 輸出）
 ```

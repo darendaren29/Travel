@@ -1,50 +1,24 @@
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema, VertexAIBackend } from 'firebase/ai'
-import { app } from './firebase'
-import { AI_BACKENDS, GEMINI_MODELS, VERTEX_LOCATION } from './config'
+import { FunctionsError, httpsCallable } from 'firebase/functions'
+import { app, functions } from './firebase'
+import { AI_BACKENDS, GEMINI_MODELS, VERTEX_LOCATION, type AiProvider } from './config'
+import { ACTIVITY_FIELDS, AI_CATEGORIES, CLAUDE_DAILY_LIMIT, SYSTEM_PROMPT, buildPrompt, type AiTrip, type ItineraryRequest } from './aiPrompt'
 import { CATEGORIES, type Activity, type Category, type Trip } from './types'
 import { longId, toMinutes, toTime, uid } from './utils'
 
-export interface ItineraryRequest {
-  destination: string
-  days: number
-  startDate: string
-  currency: string
-  budget: number
-  travelers: string
-  pace: '輕鬆' | '適中' | '緊湊'
-  preferences: string
-}
-
-/** Shape we ask Gemini to return (enforced via responseSchema). */
-export interface AiTrip {
-  name: string
-  destination: string
-  currency: string
-  days: { theme: string; activities: AiActivity[] }[]
-}
-interface AiActivity {
-  title: string
-  category: string
-  start: string
-  end: string
-  location: string
-  lat: number
-  lng: number
-  cost: number
-  notes?: string
-}
+export type { ItineraryRequest, AiTrip } from './aiPrompt'
 
 const activitySchema = Schema.object({
   properties: {
-    title: Schema.string({ description: '活動名稱，簡短，繁體中文' }),
-    category: Schema.enumString({ enum: [...CATEGORIES] }),
-    start: Schema.string({ description: '開始時間，24 小時制 HH:MM' }),
-    end: Schema.string({ description: '結束時間，24 小時制 HH:MM，晚於 start' }),
-    location: Schema.string({ description: '地點名稱（店名/景點名）' }),
-    lat: Schema.number({ description: 'WGS84 緯度，小數' }),
-    lng: Schema.number({ description: 'WGS84 經度，小數' }),
-    cost: Schema.integer({ description: '預估每人花費（指定幣別），免費填 0' }),
-    notes: Schema.string({ description: '一句實用提示：訂位、交通、注意事項' }),
+    title: Schema.string({ description: ACTIVITY_FIELDS.title }),
+    category: Schema.enumString({ enum: AI_CATEGORIES }),
+    start: Schema.string({ description: ACTIVITY_FIELDS.start }),
+    end: Schema.string({ description: ACTIVITY_FIELDS.end }),
+    location: Schema.string({ description: ACTIVITY_FIELDS.location }),
+    lat: Schema.number({ description: ACTIVITY_FIELDS.lat }),
+    lng: Schema.number({ description: ACTIVITY_FIELDS.lng }),
+    cost: Schema.integer({ description: ACTIVITY_FIELDS.cost }),
+    notes: Schema.string({ description: ACTIVITY_FIELDS.notes }),
   },
   optionalProperties: ['notes'],
 })
@@ -64,18 +38,6 @@ const tripSchema = Schema.object({
     }),
   },
 })
-
-const SYSTEM = `你是專業的旅遊行程規劃師。根據使用者的需求，規劃可直接執行的逐日行程。
-規則：
-- 全部使用繁體中文（地名可附原文）。
-- 每天安排 4–7 個活動（行程超過 7 天時每天 3–5 個，以免內容過長），包含午/晚餐（category=food），景點之間要考慮合理的交通時間，不要時間重疊。
-- 使用者在偏好中寫的航班、住宿、日期等固定安排必須照實排入對應日期（航班用 category=transport）。
-- 第一天從抵達或約 09:00 開始，第一天最後一項安排飯店 check-in（category=lodging，cost 填當晚房價）；最後一天依離開時間結束。
-- 同一區域的景點排在同一天，減少往返。
-- 每個活動都要給出真實存在的地點，以及正確的 WGS84 經緯度（小數，不可為 0）。
-- cost 為每人預估花費，使用指定幣別、整數；免費填 0。盡量讓總花費落在預算內。
-- notes 給一句實用提示（是否需預約、交通方式、營業時間注意）。
-- 只輸出符合 schema 的 JSON。`
 
 const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const isNotFound = (e: unknown) => /404|not found|NOT_FOUND|is not supported/i.test(msgOf(e))
@@ -102,6 +64,7 @@ export class ItineraryError extends Error {
 
 /** Friendlier wording for the errors users are likely to hit. */
 export const describeAiError = (e: unknown): string => {
+  if (e instanceof FunctionsError) return describeClaudeError(e)
   const msg = msgOf(e)
   if (/app check|appcheck|deactivated/i.test(msg)) return 'Firebase App Check 尚未設定或驗證失敗（請確認 reCAPTCHA 金鑰與 App Check 設定）。'
   if (isBilling(msg))
@@ -122,20 +85,11 @@ export const describeAiError = (e: unknown): string => {
 
 /** Detail lines ("model: message") for an error from generateItinerary. */
 export const aiErrorDetails = (e: unknown): string[] =>
-  e instanceof ItineraryError ? e.attempts.map((a) => `${a.model}：${a.message}`) : [msgOf(e)]
-
-const buildPrompt = (r: ItineraryRequest) =>
-  [
-    `目的地：${r.destination}`,
-    `天數：${r.days} 天，出發日 ${r.startDate}`,
-    `旅客：${r.travelers || '2 位成人'}`,
-    `步調：${r.pace}`,
-    `幣別：${r.currency}${r.budget > 0 ? `，總預算約 ${r.budget} ${r.currency}（每人）` : '，預算不限'}`,
-    r.preferences.trim() ? `偏好與需求：${r.preferences.trim()}` : '',
-    `請輸出剛好 ${r.days} 天的行程。`,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  e instanceof ItineraryError
+    ? e.attempts.map((a) => `${a.model}：${a.message}`)
+    : e instanceof FunctionsError
+      ? [`Claude · ${e.code}：${e.message}`]
+      : [msgOf(e)]
 
 const BACKEND_LABEL = { vertex: 'Vertex AI', developer: 'Developer API' } as const
 
@@ -144,7 +98,7 @@ const BACKEND_LABEL = { vertex: 'Vertex AI', developer: 'Developer API' } as con
  * order: a missing / rate-limited / overloaded model moves on to the next model, a provider that
  * isn't enabled or has no billing moves on to the next provider. Anything else stops immediately.
  */
-export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
+async function generateWithGemini(req: ItineraryRequest): Promise<Trip> {
   const attempts: { model: string; message: string }[] = []
   for (const backendKey of AI_BACKENDS) {
     const ai = getAI(app, { backend: backendKey === 'vertex' ? new VertexAIBackend(VERTEX_LOCATION) : new GoogleAIBackend() })
@@ -152,7 +106,7 @@ export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
       try {
         const model = getGenerativeModel(ai, {
           model: modelName,
-          systemInstruction: SYSTEM,
+          systemInstruction: SYSTEM_PROMPT,
           generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: tripSchema,
@@ -177,7 +131,48 @@ export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
   throw new ItineraryError(main?.message ?? 'No Gemini model available', attempts)
 }
 
-const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/
+const claudeCall = httpsCallable<ItineraryRequest, { trip: AiTrip; model: string }>(functions, 'claudeItinerary', {
+  // Matches the function's timeoutSeconds; long trips can take a few minutes.
+  timeout: 540_000,
+})
+
+/** Ask Claude (on Vertex AI, via the claudeItinerary Cloud Function) for an itinerary. */
+async function generateWithClaude(req: ItineraryRequest): Promise<Trip> {
+  const { data } = await claudeCall(req)
+  return toTrip(data.trip, req)
+}
+
+export function generateItinerary(req: ItineraryRequest, provider: AiProvider = 'gemini'): Promise<Trip> {
+  return provider === 'claude' ? generateWithClaude(req) : generateWithGemini(req)
+}
+
+/** Wording for errors from the claudeItinerary function (see functions/src/index.ts). */
+function describeClaudeError(e: FunctionsError): string {
+  const reason = (e.details as { reason?: string } | undefined)?.reason
+  switch (reason) {
+    case 'daily-limit':
+      return `今天的 Claude 產生次數已用完（每人每天 ${CLAUDE_DAILY_LIMIT} 次），明天再試，或改用 Gemini。`
+    case 'model-not-enabled':
+      return 'Claude 尚未在 Vertex AI 啟用。請到 Google Cloud 主控台 → Vertex AI → Model Garden 搜尋 Claude，按「啟用」並同意條款。'
+    case 'rate-limit':
+      return 'Claude 目前達到速率或配額上限，請等 1 分鐘再試（或在 Vertex AI → 配額 提高上限）。'
+    case 'overloaded':
+      return 'Claude 服務目前忙碌中，請稍後再試。'
+    case 'refusal':
+      return 'Claude 拒絕了這個請求，請調整需求描述後再試。'
+    case 'truncated':
+      return 'Claude 回傳的內容不完整（行程可能太長），請減少天數或分段產生。'
+    case 'unauthenticated':
+      return '請先登入。'
+  }
+  // No reason attached: the function is missing (not deployed) or crashed before answering.
+  if (e.code === 'functions/not-found' || e.code === 'functions/internal')
+    return 'Claude 雲端函式沒有回應（claudeItinerary 可能尚未部署）。請確認 GitHub Actions 的「Deploy Cloud Functions」步驟成功。'
+  if (e.code === 'functions/deadline-exceeded') return 'Claude 花太久沒有回應，請減少天數再試。'
+  return e.message
+}
+
+const TIME_RE =/^([01]?\d|2[0-3]):[0-5]\d$/
 const asTime = (s: string, fallback: string) => (TIME_RE.test(s) ? toTime(toMinutes(s)) : fallback)
 const asCategory = (c: string): Category => (CATEGORIES as string[]).includes(c) ? (c as Category) : 'other'
 

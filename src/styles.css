@@ -1879,6 +1879,45 @@ textarea {
   margin-top: 4px;
 }
 
+/* provider switch — same ink-stamped look as the header tabs */
+.segmented {
+  display: flex;
+  align-self: flex-start;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface);
+}
+
+.segmented button {
+  border: 0;
+  background: transparent;
+  padding: 6px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: background 0.2s var(--ease), color 0.2s;
+}
+
+.segmented button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.segmented button.active {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.segmented button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
 .ai-error {
   background: var(--danger-soft);
   color: var(--danger);

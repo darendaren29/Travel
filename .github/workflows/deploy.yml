@@ -23,6 +23,9 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Build Cloud Functions
+        run: npm ci --prefix functions && npm run build --prefix functions
+
       - name: Write Firebase service account
         env:
           SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -42,3 +45,12 @@ jobs:
           npx --yes firebase-tools@14 deploy --only storage --project travel-planner-2734f --non-interactive
           gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
           gcloud storage buckets update gs://travel-planner-2734f.firebasestorage.app --cors-file=storage.cors.json --project travel-planner-2734f --quiet
+
+      # Claude itinerary function. Separate step so a first-time Functions setup problem
+      # (APIs still enabling, build permissions) doesn't block the site from shipping.
+      # --force sets up the Artifact Registry cleanup policy non-interactively.
+      - name: Deploy Cloud Functions
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+        run: npx --yes firebase-tools@14 deploy --only functions --project travel-planner-2734f --non-interactive --force
