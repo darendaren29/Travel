@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore, useCurrentTrip, type View } from '../store'
 import { downloadJson, readJsonFile } from '../share'
 import { signIn, signOut } from '../auth'
@@ -48,7 +49,17 @@ export default function Header() {
 
   return (
     <header className="header">
-      <div className="brand">🧭 旅遊行程規劃</div>
+      <div className="brand">
+        <span className="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M15.5 8.5 13.4 13.4 8.5 15.5 10.6 10.6z" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+        <span className="name">
+          旅程手帳<small>Trip Planner</small>
+        </span>
+      </div>
 
       <div className="trip-meta">
         <select value={trip.id} onChange={(e) => switchTrip(e.target.value)} title="切換旅程">
@@ -118,8 +129,9 @@ export default function Header() {
         )}
       </div>
 
-      {shareOpen && <ShareDialog trip={trip} onClose={() => setShareOpen(false)} />}
-      {aiOpen && <AiDialog onClose={() => setAiOpen(false)} />}
+      {/* Portaled: the header's backdrop-filter would otherwise trap position:fixed dialogs inside it. */}
+      {shareOpen && createPortal(<ShareDialog trip={trip} onClose={() => setShareOpen(false)} />, document.body)}
+      {aiOpen && createPortal(<AiDialog onClose={() => setAiOpen(false)} />, document.body)}
     </header>
   )
 }

@@ -169,10 +169,10 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
   }
 
   return (
-    <section className={`day-col ${isOver ? 'over' : ''}`}>
+    <section className={`day-col ${isOver ? 'over' : ''}`} style={{ '--day': color } as React.CSSProperties}>
       <header className="day-head">
         <div className="title">
-          <span className="dot" style={{ background: color }} />
+          <span className="day-badge">{index + 1}</span>
           第 {index + 1} 天
           <span className="day-tools">
             {routeUrl && (
@@ -331,8 +331,8 @@ function CardView({
           <span className="dur">{formatDuration(duration(a))}</span>
         </div>
         <div className="title" title={a.title}>
-          <span>{meta.icon}</span>
-          {a.title}
+          <span className="cat-ic">{meta.icon}</span>
+          <span className="t">{a.title}</span>
         </div>
         <div className="meta">
           {a.location && <span>📍 {a.location}</span>}
