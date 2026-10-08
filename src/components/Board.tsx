@@ -86,6 +86,8 @@ export default function Board() {
   }
 
   const active = activeId ? trip.activities[activeId] : null
+  const boardRef = useRef<HTMLDivElement>(null)
+  useWheelToHorizontal(boardRef)
 
   return (
     <DndContext
@@ -99,16 +101,116 @@ export default function Board() {
         setOverDay(null)
       }}
     >
-      <div className="board">
-        {trip.days.map((_, i) => (
-          <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} />
-        ))}
-        <button className="add-day" onClick={addDay}>
-          ＋ 新增一天
-        </button>
+      <div className="board-wrap">
+        <DayNav trip={trip} boardRef={boardRef} />
+        <div className="board" ref={boardRef}>
+          {trip.days.map((_, i) => (
+            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} />
+          ))}
+          <button className="add-day" onClick={addDay}>
+            ＋ 新增一天
+          </button>
+        </div>
       </div>
       <DragOverlay>{active ? <CardView activity={active} overlay /> : null}</DragOverlay>
     </DndContext>
+  )
+}
+
+/**
+ * Mouse wheel over the board (outside a day's card list) scrolls sideways through the days,
+ * so a plain mouse can reach later days without a horizontal scroll gesture.
+ */
+function useWheelToHorizontal(ref: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return
+      if ((e.target as Element).closest('.day-list')) return // cards scroll vertically as usual
+      if (el.scrollWidth <= el.clientWidth) return
+      el.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+      e.preventDefault()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [ref])
+}
+
+/** Day chips + prev/next above the board: shows which days are on screen and jumps to any day. */
+function DayNav({ trip, boardRef }: { trip: Trip; boardRef: React.RefObject<HTMLDivElement | null> }) {
+  const [visible, setVisible] = useState<Set<number>>(new Set([0]))
+  const chipsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const board = boardRef.current
+    if (!board) return
+    const cols = Array.from(board.querySelectorAll<HTMLElement>('.day-col'))
+    const shown = new Set<number>()
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const en of entries) {
+          const i = cols.indexOf(en.target as HTMLElement)
+          if (en.intersectionRatio >= 0.6) shown.add(i)
+          else shown.delete(i)
+        }
+        setVisible(new Set(shown))
+      },
+      { root: board, threshold: [0, 0.6, 1] },
+    )
+    cols.forEach((c) => io.observe(c))
+    return () => io.disconnect()
+  }, [boardRef, trip.days.length])
+
+  // Keep the first visible day's chip in view when the chip row itself overflows.
+  const first = visible.size ? Math.min(...visible) : 0
+  useEffect(() => {
+    const chip = chipsRef.current?.children[first] as HTMLElement | undefined
+    const row = chipsRef.current
+    if (chip && row && (chip.offsetLeft < row.scrollLeft || chip.offsetLeft + chip.offsetWidth > row.scrollLeft + row.clientWidth))
+      row.scrollTo({ left: chip.offsetLeft - 8, behavior: 'smooth' })
+  }, [first])
+
+  const goTo = (i: number) => {
+    const board = boardRef.current
+    const col = board?.querySelectorAll<HTMLElement>('.day-col')[i]
+    if (board && col) board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior: 'smooth' })
+  }
+  const last = visible.size ? Math.max(...visible) : 0
+  const n = trip.days.length
+  // Arrows page by however many days fit on screen (one on phones).
+  const step = Math.max(1, visible.size)
+  if (n <= 1) return null
+
+  return (
+    <nav className="day-nav" aria-label="切換天數">
+      <button className="btn sm ghost" onClick={() => goTo(Math.max(0, first - step))} disabled={first <= 0} aria-label="前一天">
+        ◀
+      </button>
+      <div className="day-chips" ref={chipsRef}>
+        {trip.days.map((d, i) => {
+          const date = addDays(trip.startDate, i)
+          return (
+            <button
+              key={d.id}
+              className={`day-chip ${visible.has(i) ? 'on' : ''}`}
+              style={{ '--day': dayColor(i) } as React.CSSProperties}
+              onClick={() => goTo(i)}
+              aria-current={i === first ? 'true' : undefined}
+              title={`第 ${i + 1} 天 · ${formatDate(date)}`}
+            >
+              <b>{String(i + 1).padStart(2, '0')}</b>
+              <span>
+                {date.getMonth() + 1}/{date.getDate()}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <button className="btn sm ghost" onClick={() => goTo(Math.min(n - 1, first + step))} disabled={last >= n - 1} aria-label="後一天">
+        ▶
+      </button>
+    </nav>
   )
 }
 
