@@ -1,33 +1,26 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
+import { defineSecret } from 'firebase-functions/params'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
-import Anthropic, { BetaFallbackState, betaRefusalFallbackMiddleware } from '@anthropic-ai/sdk'
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk'
+import Anthropic from '@anthropic-ai/sdk'
 import { ACTIVITY_FIELDS, AI_CATEGORIES, CLAUDE_DAILY_LIMIT, PACES, SYSTEM_PROMPT, buildPrompt, type AiTrip, type ItineraryRequest } from '../../src/aiPrompt'
 
 initializeApp()
 
-/** Claude model on Vertex AI (enable it in Vertex AI → Model Garden first). */
+/** Claude model (Claude API, billed to the Anthropic Console account that owns the key). */
 const MODEL = 'claude-opus-5-5'
-/** Used only if MODEL declines the request (policy refusal). */
-const REFUSAL_FALLBACK_MODEL = 'claude-opus-4-8'
-const VERTEX_REGION = 'global'
-const PROJECT_ID = process.env.GCLOUD_PROJECT ?? 'travel-planner-2734f'
 /** Generations per signed-in user per day (UTC), to cap spend on a public site. */
 const DAILY_LIMIT = CLAUDE_DAILY_LIMIT
 const MAX_DAYS = 21
 
-// Auth comes from the function's service account (Application Default Credentials) — no API key.
-// Created on first use: the constructor starts fetching credentials, which must not happen while
-// the deploy tooling merely loads this module to discover the functions.
-let client: AnthropicVertex | undefined
-const vertex = () =>
-  (client ??= new AnthropicVertex({
-    projectId: PROJECT_ID,
-    region: VERTEX_REGION,
-    middleware: [betaRefusalFallbackMiddleware([{ model: REFUSAL_FALLBACK_MODEL }])],
-  }))
+// Anthropic API key, stored in Google Secret Manager (synced from the GitHub secret by the deploy
+// workflow). Only this function's runtime can read it; it never reaches the browser.
+const anthropicKey = defineSecret('ANTHROPIC_API_KEY')
+
+// Created on first call, once the secret value is available at runtime.
+let client: Anthropic | undefined
+const claude = () => (client ??= new Anthropic({ apiKey: anthropicKey.value() }))
 
 const str = (description: string) => ({ type: 'string', description })
 const TRIP_SCHEMA = {
@@ -104,13 +97,17 @@ async function takeDailySlot(uid: string) {
   })
 }
 
-/** Map Vertex / Anthropic errors to callable errors the web app can explain. */
+/** Map Claude API errors to callable errors the web app can explain. */
 function toHttpsError(e: unknown): HttpsError {
   if (e instanceof HttpsError) return e
   if (e instanceof Anthropic.APIError) {
     const raw = `[${e.status ?? 'network'}] ${e.message}`
-    if (e instanceof Anthropic.NotFoundError || e instanceof Anthropic.PermissionDeniedError)
-      return new HttpsError('failed-precondition', raw, { reason: 'model-not-enabled', model: MODEL })
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError)
+      return new HttpsError('failed-precondition', raw, { reason: 'bad-key' })
+    // Out of prepaid credits shows up as a 400 mentioning the credit balance.
+    if (e instanceof Anthropic.BadRequestError && /credit balance|billing/i.test(e.message))
+      return new HttpsError('failed-precondition', raw, { reason: 'billing' })
+    if (e instanceof Anthropic.NotFoundError) return new HttpsError('failed-precondition', raw, { reason: 'model-not-found', model: MODEL })
     if (e instanceof Anthropic.RateLimitError) return new HttpsError('resource-exhausted', raw, { reason: 'rate-limit' })
     if (e instanceof Anthropic.APIConnectionError || (e.status ?? 0) >= 500) return new HttpsError('unavailable', raw, { reason: 'overloaded' })
     return new HttpsError('internal', raw, { reason: 'api-error' })
@@ -119,7 +116,7 @@ function toHttpsError(e: unknown): HttpsError {
 }
 
 export const claudeItinerary = onCall(
-  { region: 'asia-east1', timeoutSeconds: 540, memory: '512MiB', maxInstances: 5 },
+  { region: 'asia-east1', timeoutSeconds: 540, memory: '512MiB', maxInstances: 5, secrets: [anthropicKey] },
   async (request) => {
     const uid = request.auth?.uid
     if (!uid) throw new HttpsError('unauthenticated', 'sign in first', { reason: 'unauthenticated' })
@@ -128,16 +125,16 @@ export const claudeItinerary = onCall(
 
     try {
       // Streaming keeps the long JSON output clear of HTTP timeouts.
-      const stream = vertex().beta.messages.stream(
-        {
-          model: MODEL,
-          max_tokens: 64000,
-          output_config: { effort: 'medium', format: { type: 'json_schema', schema: TRIP_SCHEMA } },
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: buildPrompt(req) }],
-        },
-        { fallbackState: new BetaFallbackState() },
-      )
+      const stream = claude().beta.messages.stream({
+        model: MODEL,
+        max_tokens: 64000,
+        output_config: { effort: 'medium', format: { type: 'json_schema', schema: TRIP_SCHEMA } },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildPrompt(req) }],
+        // If the model declines on policy grounds, the API retries on a suitable fallback model.
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      })
       const message = await stream.finalMessage()
       logger.info('claude itinerary', { uid, model: message.model, stop: message.stop_reason, usage: message.usage })
 

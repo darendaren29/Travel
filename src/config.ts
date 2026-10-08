@@ -40,8 +40,8 @@ export const VERTEX_LOCATION = 'global'
 /**
  * AI itinerary providers offered in the dialog:
  * - 'gemini': Firebase AI Logic, called straight from the browser (see AI_BACKENDS above).
- * - 'claude': Claude on Vertex AI through the `claudeItinerary` Cloud Function (functions/).
- *   Needs Claude enabled in Vertex AI → Model Garden; billed to the Blaze billing account.
+ * - 'claude': Claude API through the `claudeItinerary` Cloud Function (functions/). The Anthropic
+ *   API key lives in Secret Manager (synced from the ANTHROPIC_API_KEY GitHub secret).
  */
 export type AiProvider = 'gemini' | 'claude'
 export const AI_PROVIDERS: { id: AiProvider; label: string; wait: string }[] = [

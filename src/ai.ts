@@ -136,7 +136,7 @@ const claudeCall = httpsCallable<ItineraryRequest, { trip: AiTrip; model: string
   timeout: 540_000,
 })
 
-/** Ask Claude (on Vertex AI, via the claudeItinerary Cloud Function) for an itinerary. */
+/** Ask Claude (Claude API, via the claudeItinerary Cloud Function) for an itinerary. */
 async function generateWithClaude(req: ItineraryRequest): Promise<Trip> {
   const { data } = await claudeCall(req)
   return toTrip(data.trip, req)
@@ -152,10 +152,14 @@ function describeClaudeError(e: FunctionsError): string {
   switch (reason) {
     case 'daily-limit':
       return `今天的 Claude 產生次數已用完（每人每天 ${CLAUDE_DAILY_LIMIT} 次），明天再試，或改用 Gemini。`
-    case 'model-not-enabled':
-      return 'Claude 尚未在 Vertex AI 啟用。請到 Google Cloud 主控台 → Vertex AI → Model Garden 搜尋 Claude，按「啟用」並同意條款。'
+    case 'bad-key':
+      return 'Claude API 金鑰無效或已停用。請到 console.anthropic.com 建立新金鑰，更新 GitHub 的 ANTHROPIC_API_KEY secret 後重新部署。'
+    case 'billing':
+      return 'Anthropic 帳戶的額度不足。請到 console.anthropic.com → Billing 儲值後再試。'
+    case 'model-not-found':
+      return '找不到設定的 Claude 模型，請更新 functions/src/index.ts 的 MODEL。'
     case 'rate-limit':
-      return 'Claude 目前達到速率或配額上限，請等 1 分鐘再試（或在 Vertex AI → 配額 提高上限）。'
+      return 'Claude 目前達到速率上限，請等 1 分鐘再試。'
     case 'overloaded':
       return 'Claude 服務目前忙碌中，請稍後再試。'
     case 'refusal':

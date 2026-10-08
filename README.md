@@ -28,19 +28,25 @@
 
 ## 🤖 AI 產生行程（Claude）
 
-AI 對話框上方可切換 **Gemini / Claude**（會記住上次的選擇）。Claude 走 **Vertex AI**（Google Cloud 上的 Claude），由 Cloud Function `claudeItinerary`（`functions/`）呼叫：
+AI 對話框上方可切換 **Gemini / Claude**（會記住上次的選擇）。Claude 走 **Claude API（Anthropic 金鑰）**，由 Cloud Function `claudeItinerary`（`functions/`）呼叫：
 
 ```
-瀏覽器 ── httpsCallable（需登入）──► Cloud Function（asia-east1）──► Vertex AI · Claude Opus 5.5
-                                     服務帳戶驗證，沒有 API 金鑰
+瀏覽器 ── httpsCallable（需登入）──► Cloud Function（asia-east1）──► Claude API · Claude Opus 5.5
+                                     金鑰存在 Secret Manager，只有函式讀得到
 ```
 
 - 與 Gemini 共用同一份提示與輸出格式（`src/aiPrompt.ts`），Claude 端用 structured outputs（JSON schema）保證回傳格式，前端再經同一個 `toTrip()` 修正
 - 函式只接受結構化欄位（目的地、天數…），不能被拿來當通用 Claude 代理；每位使用者每天最多 10 次（`CLAUDE_DAILY_LIMIT`，記錄在 Firestore `aiUsage/{uid}`，用戶端無權讀寫）
-- 若 Claude Opus 5.5 婉拒請求，SDK 中介層會自動改用 Claude Opus 4.8 重試
-- 費用記在 Firebase 專案的 Blaze 帳單（Vertex AI 計價），一次產生約數千到兩萬多 token
+- 啟用伺服器端 fallback（`fallbacks: "default"`）：若模型基於政策婉拒，API 會自動改用合適的模型重試
+- 費用從 Anthropic Console 帳戶的預付額度扣除（Opus 5.5：輸入 $4、輸出 $20／百萬 token），一次產生約數千到兩萬多 token
 
-一次性設定：Google Cloud 主控台 → **Vertex AI → Model Garden** → 搜尋「Claude Opus 5.5」→ **啟用**（同意條款）。部署由 GitHub Actions 的「Deploy Cloud Functions」步驟完成（第一次會自動啟用 Cloud Functions / Cloud Build / Artifact Registry API，需要幾分鐘）。
+一次性設定：
+1. [console.anthropic.com](https://console.anthropic.com) → Billing 儲值 → API Keys 建立金鑰
+2. GitHub repo → Settings → Secrets and variables → Actions → 新增 `ANTHROPIC_API_KEY`
+3. Google Cloud 主控台 → IAM → 服務帳戶 `firebase-adminsdk-…` 加上「**Secret Manager 管理員**」角色（讓部署流程把金鑰寫進 Secret Manager 並授權給函式）
+4. 推送任何 commit 或在 Actions 手動重跑，「Deploy Cloud Functions」步驟會同步金鑰並部署函式（未設定 secret 時會略過）
+
+換金鑰：更新 GitHub secret 後重跑部署即可。
 
 ## 雲端功能
 
@@ -98,7 +104,7 @@ npm run typecheck  # TypeScript 檢查
 
 ## 技術
 
-React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Storage、Hosting、Cloud Functions）· Firebase AI Logic（Gemini）· Anthropic SDK（Claude on Vertex AI）
+React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Storage、Hosting、Cloud Functions）· Firebase AI Logic（Gemini）· Anthropic SDK（Claude API）
 
 ## 專案結構
 
@@ -132,5 +138,5 @@ src/
     ShareDialog.tsx 分享連結 / 邀請共編對話框
     AiDialog.tsx    AI 產生行程對話框（Gemini / Claude 切換）
 functions/
-  src/index.ts      claudeItinerary：Claude on Vertex AI（登入檢查、每日上限、JSON schema 輸出）
+  src/index.ts      claudeItinerary：Claude API（金鑰在 Secret Manager、登入檢查、每日上限、JSON schema 輸出）
 ```

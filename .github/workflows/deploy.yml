@@ -46,17 +46,30 @@ jobs:
           gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
           gcloud storage buckets update gs://travel-planner-2734f.firebasestorage.app --cors-file=storage.cors.json --project travel-planner-2734f --quiet
 
-      # Claude itinerary function. Separate step so a first-time Functions setup problem
-      # (APIs still enabling, build permissions) doesn't block the site from shipping.
+      # Claude itinerary function. Separate step so a Functions problem doesn't block the site.
+      # The Anthropic API key comes from the ANTHROPIC_API_KEY GitHub secret and is copied into
+      # Google Secret Manager (needs the "Secret Manager Admin" role on the service account).
       # --force sets up the Artifact Registry cleanup policy non-interactively.
       - name: Deploy Cloud Functions
         continue-on-error: true
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # The Functions deploy checks billing (Cloud Billing API); the function calls Claude on Vertex AI.
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret is not set; skipping the Claude function."
+            exit 0
+          fi
+          P=travel-planner-2734f
           gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
-          gcloud services enable cloudbilling.googleapis.com aiplatform.googleapis.com --project travel-planner-2734f --quiet
-          deploy() { npx --yes firebase-tools@14 deploy --only functions --project travel-planner-2734f --non-interactive --force; }
+          gcloud services enable cloudbilling.googleapis.com secretmanager.googleapis.com --project $P --quiet
+          if ! gcloud secrets describe ANTHROPIC_API_KEY --project $P >/dev/null 2>&1; then
+            gcloud secrets create ANTHROPIC_API_KEY --replication-policy=automatic --project $P --quiet
+          fi
+          # Add a version only when the key changed, so redeploys don't pile up versions.
+          if [ "$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project $P 2>/dev/null)" != "$ANTHROPIC_API_KEY" ]; then
+            printf '%s' "$ANTHROPIC_API_KEY" | gcloud secrets versions add ANTHROPIC_API_KEY --data-file=- --project $P --quiet
+          fi
+          deploy() { npx --yes firebase-tools@14 deploy --only functions --project $P --non-interactive --force; }
           # Newly enabled APIs can take a minute to propagate, so retry once.
           deploy || { sleep 90; deploy; }
