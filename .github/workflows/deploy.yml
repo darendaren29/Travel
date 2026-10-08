@@ -61,15 +61,24 @@ jobs:
             exit 0
           fi
           P=travel-planner-2734f
-          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
-          gcloud services enable cloudbilling.googleapis.com secretmanager.googleapis.com --project $P --quiet
+          # Run a setup command; on failure report it as an annotation (readable without the log).
+          step() { local out; out=$("$@" 2>&1) || { echo "::error title=Functions setup failed::$* :: $(printf '%s' "$out" | tail -n 6 | tr '\n' ' ')"; exit 1; }; }
+          step gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
+          step gcloud services enable cloudbilling.googleapis.com secretmanager.googleapis.com --project $P --quiet
           if ! gcloud secrets describe ANTHROPIC_API_KEY --project $P >/dev/null 2>&1; then
-            gcloud secrets create ANTHROPIC_API_KEY --replication-policy=automatic --project $P --quiet
+            step gcloud secrets create ANTHROPIC_API_KEY --replication-policy=automatic --project $P --quiet
           fi
           # Add a version only when the key changed, so redeploys don't pile up versions.
           if [ "$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project $P 2>/dev/null)" != "$ANTHROPIC_API_KEY" ]; then
-            printf '%s' "$ANTHROPIC_API_KEY" | gcloud secrets versions add ANTHROPIC_API_KEY --data-file=- --project $P --quiet
+            printf '%s' "$ANTHROPIC_API_KEY" > "$RUNNER_TEMP/anthropic-key"
+            step gcloud secrets versions add ANTHROPIC_API_KEY --data-file="$RUNNER_TEMP/anthropic-key" --project $P --quiet
+            rm -f "$RUNNER_TEMP/anthropic-key"
           fi
-          deploy() { npx --yes firebase-tools@14 deploy --only functions --project $P --non-interactive --force; }
+          deploy() { npx --yes firebase-tools@14 deploy --only functions --project $P --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/functions-deploy.log"; return "${PIPESTATUS[0]}"; }
           # Newly enabled APIs can take a minute to propagate, so retry once.
-          deploy || { sleep 90; deploy; }
+          if ! deploy && ! { sleep 90; deploy; }; then
+            # Surface the tail of the output as an annotation (readable without opening the log).
+            msg=$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/functions-deploy.log" | grep -v '^\s*$' | tail -n 25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Functions deploy failed::$msg"
+            exit 1
+          fi
