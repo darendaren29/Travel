@@ -1,7 +1,14 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
-import { describeAiError, generateItinerary, type ItineraryRequest } from '../ai'
+import { aiErrorDetails, describeAiError, generateItinerary, type ItineraryRequest } from '../ai'
 import { signIn } from '../auth'
+import { AI_MAX_DAYS } from '../config'
+import { datesInText, spanMismatch } from '../dateHints'
+
+const md = (isoDate: string) => {
+  const [, m, d] = isoDate.split('-')
+  return `${Number(m)}/${Number(d)}`
+}
 
 const PACES: ItineraryRequest['pace'][] = ['輕鬆', '適中', '緊湊']
 
@@ -21,9 +28,16 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
   const [target, setTarget] = useState<'new' | 'replace'>('new')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [details, setDetails] = useState<string[]>([])
 
   const set = <K extends keyof ItineraryRequest>(k: K, v: ItineraryRequest[K]) => setForm((f) => ({ ...f, [k]: v }))
   const hasActivities = Object.keys(trip.activities).length > 0
+
+  // Flights / dates typed into the preferences that disagree with the start date or length.
+  const span = useMemo(() => datesInText(form.preferences, form.startDate), [form.preferences, form.startDate])
+  const suggestDays = span ? Math.min(AI_MAX_DAYS, span.days) : 0
+  const showSpanHint = spanMismatch(span, form.startDate, form.days)
+  const applySpan = () => span && setForm((f) => ({ ...f, startDate: span.first, days: suggestDays }))
 
   const run = async () => {
     if (!form.destination.trim()) {
@@ -33,13 +47,15 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
     if (target === 'replace' && hasActivities && !confirm(`會清掉「${trip.name}」現有的 ${Object.keys(trip.activities).length} 個活動，確定？`)) return
     setBusy(true)
     setError(null)
+    setDetails([])
     try {
-      const generated = await generateItinerary({ ...form, days: Math.min(14, Math.max(1, form.days)) })
+      const generated = await generateItinerary({ ...form, days: Math.min(AI_MAX_DAYS, Math.max(1, form.days)) })
       if (target === 'new') importTrip(generated)
       else replaceCurrentTrip(generated)
       onClose()
     } catch (e) {
       setError(describeAiError(e))
+      setDetails(aiErrorDetails(e))
     } finally {
       setBusy(false)
     }
@@ -71,7 +87,14 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
               </div>
               <div className="field">
                 <label>天數</label>
-                <input type="number" min={1} max={14} value={form.days} onChange={(e) => set('days', Number(e.target.value) || 1)} disabled={busy} />
+                <input
+                  type="number"
+                  min={1}
+                  max={AI_MAX_DAYS}
+                  value={form.days}
+                  onChange={(e) => set('days', Math.min(AI_MAX_DAYS, Number(e.target.value) || 1))}
+                  disabled={busy}
+                />
               </div>
             </div>
 
@@ -115,6 +138,24 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
               />
             </div>
 
+            {showSpanHint && span && (
+              <div className="ai-hint-box">
+                <span>
+                  需求中提到 <b>{md(span.first)}</b>
+                  {span.days > 1 && (
+                    <>
+                      {' '}– <b>{md(span.last)}</b>（{span.days} 天）
+                    </>
+                  )}
+                  ，目前設定是 {md(form.startDate)} 起 {form.days} 天。
+                  {span.days > AI_MAX_DAYS && ` 一次最多產生 ${AI_MAX_DAYS} 天。`}
+                </span>
+                <button className="btn sm" onClick={applySpan} disabled={busy}>
+                  改為 {md(span.first)} 起 {suggestDays} 天
+                </button>
+              </div>
+            )}
+
             <div className="field">
               <label>產生到</label>
               <div className="row">
@@ -129,7 +170,21 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            {error && <div className="ai-error">⚠ {error}</div>}
+            {error && (
+              <div className="ai-error">
+                ⚠ {error}
+                {details.length > 0 && (
+                  <details>
+                    <summary>技術細節</summary>
+                    <ul>
+                      {details.map((d, i) => (
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
 
             <div className="actions">
               <button className="btn" onClick={onClose} disabled={busy}>

@@ -20,5 +20,11 @@ export const GOOGLE_MAP_ID = 'a777c9bd17ed46cbbc2f8b8c'
  */
 export const CARTO_API_KEY = ''
 
-/** Gemini models to try in order; the first one the project can use wins. */
-export const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3-flash', 'gemini-2.5-flash']
+/**
+ * Gemini models to try in order. A model that is missing, out of quota or overloaded is skipped,
+ * so cheaper "lite" models with larger free quotas act as fallbacks.
+ */
+export const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']
+
+/** Longest itinerary the AI dialog will request in one go. */
+export const AI_MAX_DAYS = 21

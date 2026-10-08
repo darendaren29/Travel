@@ -68,7 +68,8 @@ const tripSchema = Schema.object({
 const SYSTEM = `你是專業的旅遊行程規劃師。根據使用者的需求，規劃可直接執行的逐日行程。
 規則：
 - 全部使用繁體中文（地名可附原文）。
-- 每天安排 4–7 個活動，包含早/午/晚餐（category=food），景點之間要考慮合理的交通時間，不要時間重疊。
+- 每天安排 4–7 個活動（行程超過 7 天時每天 3–5 個，以免內容過長），包含午/晚餐（category=food），景點之間要考慮合理的交通時間，不要時間重疊。
+- 使用者在偏好中寫的航班、住宿、日期等固定安排必須照實排入對應日期（航班用 category=transport）。
 - 第一天從抵達或約 09:00 開始，第一天最後一項安排飯店 check-in（category=lodging，cost 填當晚房價）；最後一天依離開時間結束。
 - 同一區域的景點排在同一天，減少往返。
 - 每個活動都要給出真實存在的地點，以及正確的 WGS84 經緯度（小數，不可為 0）。
@@ -76,20 +77,42 @@ const SYSTEM = `你是專業的旅遊行程規劃師。根據使用者的需求�
 - notes 給一句實用提示（是否需預約、交通方式、營業時間注意）。
 - 只輸出符合 schema 的 JSON。`
 
-const isNotFound = (e: unknown) => {
-  const msg = e instanceof Error ? e.message : String(e)
-  return /404|not found|NOT_FOUND|is not supported/i.test(msg)
+const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const isNotFound = (e: unknown) => /404|not found|NOT_FOUND|is not supported/i.test(msgOf(e))
+const isQuota = (e: unknown) => /429|quota|RESOURCE_EXHAUSTED|rate.?limit/i.test(msgOf(e))
+const isOverloaded = (e: unknown) => /503|UNAVAILABLE|overloaded/i.test(msgOf(e))
+/** Errors where trying the next model in GEMINI_MODELS may help. */
+const shouldTryNextModel = (e: unknown) => isNotFound(e) || isQuota(e) || isOverloaded(e)
+
+/** Error carrying what each model answered, so the UI can show the real cause. */
+export class ItineraryError extends Error {
+  constructor(
+    message: string,
+    readonly attempts: { model: string; message: string }[],
+  ) {
+    super(message)
+  }
 }
 
 /** Friendlier wording for the errors users are likely to hit. */
 export const describeAiError = (e: unknown): string => {
-  const msg = e instanceof Error ? e.message : String(e)
+  const msg = msgOf(e)
   if (/app check|appcheck|deactivated/i.test(msg)) return 'Firebase App Check 尚未設定或驗證失敗（請確認 reCAPTCHA 金鑰與 App Check 設定）。'
-  if (/429|quota|RESOURCE_EXHAUSTED/i.test(msg)) return 'Gemini 額度暫時用完了，請稍後再試。'
+  if (isQuota(msg)) {
+    if (/limit:?\s*0\b/i.test(msg)) return '這個專案目前沒有可用的 Gemini 免費額度（上限為 0）。請確認 Firebase 已升級 Blaze 並連結帳單帳戶，或改用 Vertex AI。'
+    if (/per.?day|daily|PerDay/i.test(msg)) return '今天的 Gemini 免費額度已用完（每日上限），明天會重置；或升級付費層級提高上限。'
+    return '所有模型都暫時達到速率上限，請等 1 分鐘再試。'
+  }
+  if (isOverloaded(msg)) return 'Gemini 服務目前忙碌中，請稍後再試。'
   if (/403|PERMISSION_DENIED|API has not been used|not enabled/i.test(msg)) return 'Firebase AI Logic 尚未在專案中啟用（Firebase 主控台 → AI Logic → 開始使用）。'
   if (isNotFound(msg)) return '找不到可用的 Gemini 模型，請更新 src/config.ts 的 GEMINI_MODELS。'
+  if (/JSON|Unexpected end|Unterminated/i.test(msg)) return 'Gemini 回傳的內容不完整（行程可能太長），請減少天數或分段產生。'
   return msg
 }
+
+/** Detail lines ("model: message") for an error from generateItinerary. */
+export const aiErrorDetails = (e: unknown): string[] =>
+  e instanceof ItineraryError ? e.attempts.map((a) => `${a.model}：${a.message}`) : [msgOf(e)]
 
 const buildPrompt = (r: ItineraryRequest) =>
   [
@@ -104,10 +127,13 @@ const buildPrompt = (r: ItineraryRequest) =>
     .filter(Boolean)
     .join('\n')
 
-/** Ask Gemini for an itinerary; tries each configured model until one responds. */
+/**
+ * Ask Gemini for an itinerary. Each configured model is tried in turn; a model that is missing,
+ * out of quota or overloaded is skipped. Any other error stops immediately.
+ */
 export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
   const ai = getAI(app, { backend: new GoogleAIBackend() })
-  let lastError: unknown = null
+  const attempts: { model: string; message: string }[] = []
   for (const modelName of GEMINI_MODELS) {
     try {
       const model = getGenerativeModel(ai, {
@@ -117,17 +143,21 @@ export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
           responseMimeType: 'application/json',
           responseSchema: tripSchema,
           temperature: 0.7,
+          // Long trips produce long JSON; leave room so it isn't cut off mid-object.
+          maxOutputTokens: 32768,
         },
       })
       const result = await model.generateContent(buildPrompt(req))
       const raw = JSON.parse(result.response.text()) as AiTrip
       return toTrip(raw, req)
     } catch (e) {
-      lastError = e
-      if (!isNotFound(e)) throw e
+      attempts.push({ model: modelName, message: msgOf(e) })
+      if (!shouldTryNextModel(e)) throw new ItineraryError(msgOf(e), attempts)
     }
   }
-  throw lastError ?? new Error('No Gemini model available')
+  // Prefer explaining a quota problem over "model not found" when both happened.
+  const main = attempts.find((a) => isQuota(a.message)) ?? attempts.find((a) => isOverloaded(a.message)) ?? attempts[attempts.length - 1]
+  throw new ItineraryError(main?.message ?? 'No Gemini model available', attempts)
 }
 
 const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/

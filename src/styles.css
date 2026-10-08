@@ -1895,6 +1895,48 @@ textarea {
   color: var(--muted);
 }
 
+.ai-hint-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border: 1.5px dashed var(--airmail-blue);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--airmail-blue) 7%, var(--surface));
+  font-size: 12.5px;
+}
+
+.ai-hint-box span {
+  flex: 1;
+  min-width: 200px;
+}
+
+.ai-hint-box b {
+  font-family: var(--font-mono);
+}
+
+.ai-error details {
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.ai-error summary {
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.ai-error ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  word-break: break-word;
+  max-height: 140px;
+  overflow: auto;
+}
+
 .spinner {
   width: 14px;
   height: 14px;
