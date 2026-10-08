@@ -45,6 +45,7 @@ AI 對話框上方可切換 **Gemini / Claude**（會記住上次的選擇）。
 2. GitHub repo → Settings → Secrets and variables → Actions → 新增 `ANTHROPIC_API_KEY`
 3. Google Cloud 主控台 → IAM → 服務帳戶 `firebase-adminsdk-…` 加上「**Secret Manager 管理員**」角色（讓部署流程把金鑰寫進 Secret Manager 並授權給函式）
 4. 推送任何 commit 或在 Actions 手動重跑，「Deploy Cloud Functions」步驟會同步金鑰並部署函式（未設定 secret 時會略過）
+5. 第一次部署後：Cloud Run → `claudeitinerary` → 安全性 → 允許未經驗證的叫用（部署帳戶只有編輯者角色，無法自動設定呼叫權限；函式內仍會檢查登入）
 
 換金鑰：更新 GitHub secret 後重跑部署即可。
 

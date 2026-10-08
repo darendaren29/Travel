@@ -171,7 +171,7 @@ function describeClaudeError(e: FunctionsError): string {
   }
   // No reason attached: the function is missing (not deployed) or crashed before answering.
   if (e.code === 'functions/not-found' || e.code === 'functions/internal')
-    return 'Claude 雲端函式沒有回應（claudeItinerary 可能尚未部署）。請確認 GitHub Actions 的「Deploy Cloud Functions」步驟成功。'
+    return 'Claude 雲端函式無法呼叫：可能尚未部署，或沒有開放呼叫權限（Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用）。'
   if (e.code === 'functions/deadline-exceeded') return 'Claude 花太久沒有回應，請減少天數再試。'
   return e.message
 }
