@@ -12,12 +12,20 @@ import { useRouteSync } from './useRouteSync'
 export default function App() {
   const view = useStore((s) => s.view)
   const selected = useStore((s) => s.selectedActivityId)
+  const compact = useStore((s) => s.compact)
+  const toggleCompact = useStore((s) => s.toggleCompact)
   useRouteSync()
 
   return (
     <div className="app">
-      <Header />
-      <TripBar />
+      <div className={`chrome ${compact ? 'is-compact' : ''}`}>
+        <Header />
+        {!compact && <TripBar />}
+        {/* Luggage-tag pull tab hanging from the chrome: fold the top away / bring it back. */}
+        <button className="chrome-tab" onClick={toggleCompact} aria-expanded={!compact} title={compact ? '展開上方功能列' : '收合上方功能列，讓行程有更多空間'}>
+          {compact ? '展開 ︾' : '收合 ︽'}
+        </button>
+      </div>
       <div className="main">
         <div className="content">
           {view === 'board' && <Board />}

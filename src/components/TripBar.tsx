@@ -5,6 +5,8 @@ import { TRAVEL_MODES, type TravelMode } from '../types'
 import { useGooglePlaces } from '../places'
 import { tripMode } from '../routes'
 
+const titleEm = (name: string) => Math.max(4, [...name].reduce((n, ch) => n + (/[\u2E80-\uFFFF]/.test(ch) ? 1.08 : 0.64), 0)).toFixed(1)
+
 export default function TripBar() {
   const trip = useCurrentTrip()
   const { updateTrip, routing, routingError } = useStore()
@@ -18,10 +20,13 @@ export default function TripBar() {
     <div className={`trip-bar ${open ? 'open' : ''}`}>
       <div className="trip-summary">
         <input
+          className="trip-title"
           value={trip.name}
           onChange={(e) => updateTrip({ name: e.target.value })}
           placeholder="旅程名稱"
-          style={{ fontWeight: 700, width: 180 }}
+          // Size to the text (CJK ≈ 1em, Latin ≈ 0.6em, plus letter-spacing) so long names aren't cut off; CSS caps it at 100%.
+          style={{ width: `calc(${titleEm(trip.name)}em + 20px)` }}
+          title={trip.name}
         />
         {/* Only visible on narrow screens: toggles the detail fields below. */}
         <button className="btn sm ghost trip-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>

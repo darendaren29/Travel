@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, useCurrentTrip, type View } from '../store'
+import { addDays } from '../utils'
 import { downloadJson, readJsonFile } from '../share'
 import { signIn, signOut } from '../auth'
 import ShareDialog from './ShareDialog'
@@ -22,8 +23,9 @@ const SYNC_LABEL = {
 
 export default function Header() {
   const trip = useCurrentTrip()
-  const { trips, view, setView, switchTrip, createTrip, deleteTrip, importTrip, user, syncState, syncError, pendingJoin } = useStore()
+  const { trips, view, setView, switchTrip, createTrip, deleteTrip, importTrip, user, syncState, syncError, pendingJoin, compact } = useStore()
   const fileRef = useRef<HTMLInputElement>(null)
+  const moreRef = useRef<HTMLDetailsElement>(null)
   const [shareOpen, setShareOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
   const isOwner = !trip.ownerId || trip.ownerId === user?.uid
@@ -48,16 +50,51 @@ export default function Header() {
     if (confirm('登出後，這台裝置上的行程會清除（雲端資料保留）。確定登出？')) void signOut()
   }
 
+  // Portaled: the header's backdrop-filter would otherwise trap position:fixed dialogs inside it.
+  const dialogs = (
+    <>
+      {shareOpen && createPortal(<ShareDialog trip={trip} onClose={() => setShareOpen(false)} />, document.body)}
+      {aiOpen && createPortal(<AiDialog onClose={() => setAiOpen(false)} />, document.body)}
+    </>
+  )
+
+  const tabs = (
+    <nav className="tabs">
+      {VIEWS.map((v) => (
+        <button key={v.key} className={view === v.key ? 'active' : ''} onClick={() => setView(v.key)} title={v.label}>
+          <span className="ic">{v.icon}</span> <span className="lbl">{v.label}</span>
+        </button>
+      ))}
+    </nav>
+  )
+
+  // Compact: one slim row so the day board gets the screen.
+  if (compact) {
+    const md = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`
+    return (
+      <header className="header compact">
+        <span className="brand" title="旅程手帳">
+          <Logo />
+        </span>
+        <div className="compact-trip">
+          <b title={trip.name}>{trip.name}</b>
+          <small>
+            {trip.days.length} 天 · {md(addDays(trip.startDate, 0))} → {md(addDays(trip.startDate, trip.days.length - 1))}
+          </small>
+        </div>
+        {tabs}
+        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 AI 產生行程">
+          ✨
+        </button>
+        {dialogs}
+      </header>
+    )
+  }
+
   return (
     <header className="header">
       <div className="brand">
-        <span className="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9.2" />
-            <circle cx="12" cy="12" r="6.6" strokeDasharray="1.2 1.8" />
-            <path d="M15.2 8.8 13.1 13.1 8.8 15.2 10.9 10.9z" fill="currentColor" stroke="none" />
-          </svg>
-        </span>
+        <Logo />
         <span className="name">
           旅程手帳<small>Trip Planner · Par Avion</small>
         </span>
@@ -75,21 +112,15 @@ export default function Header() {
         <button className="btn sm" onClick={() => createTrip()} title="建立新旅程">
           ＋ <span className="lbl">新旅程</span>
         </button>
-        <button className="btn sm ghost danger" onClick={onDelete} title={isOwner ? '刪除此旅程' : '退出共編'}>
+        <button className="btn sm ghost danger del" onClick={onDelete} title={isOwner ? '刪除此旅程' : '退出共編'}>
           {isOwner ? '刪除' : '退出'}
         </button>
       </div>
 
-      <nav className="tabs">
-        {VIEWS.map((v) => (
-          <button key={v.key} className={view === v.key ? 'active' : ''} onClick={() => setView(v.key)}>
-            {v.icon} {v.label}
-          </button>
-        ))}
-      </nav>
+      {tabs}
 
       <div className="actions">
-        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 Gemini 產生行程">
+        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 AI 產生行程">
           ✨ <span className="lbl">AI 產生</span>
         </button>
         <input ref={fileRef} type="file" accept="application/json" hidden onChange={onImport} />
@@ -105,6 +136,21 @@ export default function Header() {
         <button className="btn sm" onClick={() => window.print()} title="列印">
           🖨️ <span className="lbl">列印</span>
         </button>
+        {/* Phones: the secondary actions live in this menu instead of a row of buttons. */}
+        <details className="more" ref={moreRef}>
+          <summary className="btn sm" aria-label="更多功能">
+            ⋯
+          </summary>
+          <div className="more-menu" onClick={() => moreRef.current?.removeAttribute('open')}>
+            <button onClick={() => fileRef.current?.click()}>📥 匯入 JSON</button>
+            <button onClick={() => downloadJson(trip)}>📤 匯出 JSON</button>
+            <button onClick={() => setShareOpen(true)}>🔗 分享 / 邀請共編</button>
+            <button onClick={() => window.print()}>🖨️ 列印</button>
+            <button className="danger" onClick={onDelete}>
+              🗑️ {isOwner ? '刪除此旅程' : '退出共編'}
+            </button>
+          </div>
+        </details>
       </div>
 
       <div className="account">
@@ -131,9 +177,19 @@ export default function Header() {
         )}
       </div>
 
-      {/* Portaled: the header's backdrop-filter would otherwise trap position:fixed dialogs inside it. */}
-      {shareOpen && createPortal(<ShareDialog trip={trip} onClose={() => setShareOpen(false)} />, document.body)}
-      {aiOpen && createPortal(<AiDialog onClose={() => setAiOpen(false)} />, document.body)}
+      {dialogs}
     </header>
+  )
+}
+
+function Logo() {
+  return (
+    <span className="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9.2" />
+        <circle cx="12" cy="12" r="6.6" strokeDasharray="1.2 1.8" />
+        <path d="M15.2 8.8 13.1 13.1 8.8 15.2 10.9 10.9z" fill="currentColor" stroke="none" />
+      </svg>
+    </span>
   )
 }

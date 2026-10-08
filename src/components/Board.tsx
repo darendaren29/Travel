@@ -6,12 +6,15 @@ import {
   TouchSensor,
   KeyboardSensor,
   closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
   useDroppable,
   type DragEndEvent,
   type DragStartEvent,
   type DragOverEvent,
+  type CollisionDetection,
+  type PointerSensorProps,
 } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -37,6 +40,33 @@ import { photoUrl, useGooglePlaces } from '../places'
 const STRIP_START = 6 * 60 // 06:00
 const STRIP_END = 24 * 60 // 24:00
 const dayId = (i: number) => `day-${i}`
+const chipId = (i: number) => `chip-${i}`
+const isChip = (id: unknown) => String(id).startsWith('chip-')
+
+/**
+ * Touch: a long press anywhere on a card starts a drag (so a normal swipe still scrolls),
+ * but pressing the card's grip strip starts it right away.
+ */
+class GripAwareTouchSensor extends TouchSensor {
+  constructor(props: PointerSensorProps) {
+    const onGrip = (props.event.target as Element | null)?.closest?.('[data-drag-handle]')
+    super(onGrip ? { ...props, options: { ...props.options, activationConstraint: { distance: 4 } } } : props)
+  }
+}
+
+/** Day chips win while the pointer is on one; otherwise the usual closest-corners sorting. */
+const collision: CollisionDetection = (args) => {
+  const chips = args.droppableContainers.filter((c) => isChip(c.id))
+  const onChip = pointerWithin({ ...args, droppableContainers: chips })
+  if (onChip.length) return onChip
+  return closestCorners({ ...args, droppableContainers: args.droppableContainers.filter((c) => !isChip(c.id)) })
+}
+
+/** Scroll the board so day `i` is the first column. */
+const scrollToDay = (board: HTMLElement | null, i: number) => {
+  const col = board?.querySelectorAll<HTMLElement>('.day-col')[i]
+  if (board && col) board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior: 'smooth' })
+}
 
 export default function Board() {
   const trip = useCurrentTrip()
@@ -47,12 +77,13 @@ export default function Board() {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     // Long-press to drag on touch devices so a normal swipe still scrolls the list.
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(GripAwareTouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
   const locate = (id: string): { day: number; index: number } | null => {
     if (id.startsWith('day-')) return { day: Number(id.slice(4)), index: -1 }
+    if (isChip(id)) return { day: Number(id.slice(5)), index: -1 }
     for (let d = 0; d < trip.days.length; d++) {
       const idx = trip.days[d].activityIds.indexOf(id)
       if (idx >= 0) return { day: d, index: idx }
@@ -83,6 +114,8 @@ export default function Board() {
 
     if (from.day === to.day && from.index === index) return
     moveActivity(id, to.day, index)
+    // Dropped on a day chip: bring that day into view so the move is visible.
+    if (isChip(e.over.id)) setTimeout(() => scrollToDay(boardRef.current, to.day), 50)
   }
 
   const active = activeId ? trip.activities[activeId] : null
@@ -92,7 +125,9 @@ export default function Board() {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={collision}
+      // The wide drag preview would keep the chip row scrolling; only the board and day lists auto-scroll.
+      autoScroll={{ canScroll: (el) => !el.classList.contains('day-chips') }}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
@@ -102,7 +137,7 @@ export default function Board() {
       }}
     >
       <div className="board-wrap">
-        <DayNav trip={trip} boardRef={boardRef} />
+        <DayNav trip={trip} boardRef={boardRef} dragging={!!activeId} />
         <div className="board" ref={boardRef}>
           {trip.days.map((_, i) => (
             <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} />
@@ -137,8 +172,8 @@ function useWheelToHorizontal(ref: React.RefObject<HTMLDivElement | null>) {
   }, [ref])
 }
 
-/** Day chips + prev/next above the board: shows which days are on screen and jumps to any day. */
-function DayNav({ trip, boardRef }: { trip: Trip; boardRef: React.RefObject<HTMLDivElement | null> }) {
+/** Day chips + prev/next above the board: shows which days are on screen, jumps to any day, and accepts dropped cards. */
+function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefObject<HTMLDivElement | null>; dragging: boolean }) {
   const [visible, setVisible] = useState<Set<number>>(new Set([0]))
   const chipsRef = useRef<HTMLDivElement>(null)
 
@@ -171,11 +206,7 @@ function DayNav({ trip, boardRef }: { trip: Trip; boardRef: React.RefObject<HTML
       row.scrollTo({ left: chip.offsetLeft - 8, behavior: 'smooth' })
   }, [first])
 
-  const goTo = (i: number) => {
-    const board = boardRef.current
-    const col = board?.querySelectorAll<HTMLElement>('.day-col')[i]
-    if (board && col) board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior: 'smooth' })
-  }
+  const goTo = (i: number) => scrollToDay(boardRef.current, i)
   const last = visible.size ? Math.max(...visible) : 0
   const n = trip.days.length
   // Arrows page by however many days fit on screen (one on phones).
@@ -183,34 +214,42 @@ function DayNav({ trip, boardRef }: { trip: Trip; boardRef: React.RefObject<HTML
   if (n <= 1) return null
 
   return (
-    <nav className="day-nav" aria-label="切換天數">
+    <nav className={`day-nav ${dragging ? 'dragging' : ''}`} aria-label="切換天數">
       <button className="btn sm ghost" onClick={() => goTo(Math.max(0, first - step))} disabled={first <= 0} aria-label="前一天">
         ◀
       </button>
       <div className="day-chips" ref={chipsRef}>
-        {trip.days.map((d, i) => {
-          const date = addDays(trip.startDate, i)
-          return (
-            <button
-              key={d.id}
-              className={`day-chip ${visible.has(i) ? 'on' : ''}`}
-              style={{ '--day': dayColor(i) } as React.CSSProperties}
-              onClick={() => goTo(i)}
-              aria-current={i === first ? 'true' : undefined}
-              title={`第 ${i + 1} 天 · ${formatDate(date)}`}
-            >
-              <b>{String(i + 1).padStart(2, '0')}</b>
-              <span>
-                {date.getMonth() + 1}/{date.getDate()}
-              </span>
-            </button>
-          )
-        })}
+        {trip.days.map((d, i) => (
+          <DayChip key={d.id} trip={trip} index={i} on={visible.has(i)} current={i === first} onClick={() => goTo(i)} />
+        ))}
       </div>
+      <span className="drop-hint" aria-hidden={!dragging}>
+        放到日期 → 移到該天
+      </span>
       <button className="btn sm ghost" onClick={() => goTo(Math.min(n - 1, first + step))} disabled={last >= n - 1} aria-label="後一天">
         ▶
       </button>
     </nav>
+  )
+}
+
+function DayChip({ trip, index: i, on, current, onClick }: { trip: Trip; index: number; on: boolean; current: boolean; onClick: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: chipId(i) })
+  const date = addDays(trip.startDate, i)
+  return (
+    <button
+      ref={setNodeRef}
+      className={`day-chip ${on ? 'on' : ''} ${isOver ? 'drop' : ''}`}
+      style={{ '--day': dayColor(i) } as React.CSSProperties}
+      onClick={onClick}
+      aria-current={current ? 'true' : undefined}
+      title={`第 ${i + 1} 天 · ${formatDate(date)}（可把活動拖到這裡）`}
+    >
+      <b>{String(i + 1).padStart(2, '0')}</b>
+      <span>
+        {date.getMonth() + 1}/{date.getDate()}
+      </span>
+    </button>
   )
 }
 
@@ -430,7 +469,9 @@ function CardView({
   const attachments = Object.values(trip.docs ?? {}).filter((d) => d.activityId === a.id).length
   return (
     <div className={cls} style={{ '--cat': meta.color } as React.CSSProperties} onClick={() => select(a.id)}>
-      <div className="bar" />
+      <div className="bar" data-drag-handle title="拖曳以調整順序或移到其他天">
+        <span className="grip" aria-hidden="true" />
+      </div>
       <div className="body">
         <div className="time">
           {a.start} – {a.end}

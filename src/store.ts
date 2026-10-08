@@ -19,6 +19,8 @@ interface State {
   currentTripId: string
   view: View
   basemap: BasemapKey
+  /** Collapse the header + trip bar into one slim row to give the itinerary more room. */
+  compact: boolean
   selectedActivityId: string | null
   /** When set, the next map click assigns coordinates to this activity. */
   pickingLocationFor: string | null
@@ -33,6 +35,7 @@ interface State {
 
   setView: (v: View) => void
   setBasemap: (b: BasemapKey) => void
+  toggleCompact: () => void
   select: (id: string | null) => void
   setPickingLocation: (id: string | null) => void
   setUser: (u: AuthUser | null) => void
@@ -130,6 +133,7 @@ export const useStore = create<State>()(
         currentTripId: sampleTrip.id,
         view: 'board',
         basemap: 'auto',
+        compact: false,
         selectedActivityId: null,
         pickingLocationFor: null,
         user: null,
@@ -141,6 +145,7 @@ export const useStore = create<State>()(
 
         setView: (view) => set({ view }),
         setBasemap: (basemap) => set({ basemap }),
+        toggleCompact: () => set((s) => ({ compact: !s.compact })),
         select: (selectedActivityId) => set({ selectedActivityId }),
         setPickingLocation: (pickingLocationFor) => set({ pickingLocationFor }),
         setUser: (user) => set({ user }),
@@ -375,7 +380,7 @@ export const useStore = create<State>()(
     },
     {
       name: 'travel-planner-v1',
-      partialize: (s) => ({ trips: s.trips, currentTripId: s.currentTripId, view: s.view, basemap: s.basemap }),
+      partialize: (s) => ({ trips: s.trips, currentTripId: s.currentTripId, view: s.view, basemap: s.basemap, compact: s.compact }),
     },
   ),
 )
