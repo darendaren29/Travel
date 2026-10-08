@@ -26,5 +26,16 @@ export const CARTO_API_KEY = ''
  */
 export const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']
 
+/**
+ * Gemini providers behind Firebase AI Logic, tried in order:
+ * - 'vertex': Vertex AI Gemini API — postpaid on the Blaze billing account (needs enabling in
+ *   Firebase console → AI Logic). Google Cloud credits apply.
+ * - 'developer': Gemini Developer API — AI Studio billing (free tier or prepaid credits).
+ * A provider that isn't enabled or has no billing is skipped automatically.
+ */
+export const AI_BACKENDS: ('vertex' | 'developer')[] = ['vertex', 'developer']
+/** Vertex AI location; 'global' serves the most models. */
+export const VERTEX_LOCATION = 'global'
+
 /** Longest itinerary the AI dialog will request in one go. */
 export const AI_MAX_DAYS = 21

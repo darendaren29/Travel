@@ -22,9 +22,9 @@
 技術：透過 **Firebase AI Logic** 呼叫 Gemini（`firebase/ai` + `GoogleAIBackend`），API 金鑰不會出現在前端；回應以 `responseSchema` 強制為 JSON，再經 `src/ai.ts` 的 `toTrip()` 驗證與修正（時間格式、類別、座標、費用）。
 
 啟用步驟（一次性）：
-1. Firebase 主控台 → **AI Logic** → 開始使用 → 選 **Gemini Developer API**
+1. Firebase 主控台 → **AI Logic** → 開始使用；建議同時啟用 **Vertex AI Gemini API**（Blaze 帳單後付）
 2. 依引導設定 **App Check**（reCAPTCHA Enterprise），把網站金鑰填到 `src/config.ts` 的 `RECAPTCHA_SITE_KEY`
-3. 模型名稱在 `src/config.ts` 的 `GEMINI_MODELS`，會依序嘗試
+3. `src/config.ts`：`AI_BACKENDS`（預設先 Vertex AI、再 Developer API）與 `GEMINI_MODELS` 依序嘗試——模型不存在／限流／忙碌會換下一個模型；供應方未啟用或沒有帳單（例如 AI Studio 預付額度用完）會換下一個供應方。失敗時對話框的「技術細節」列出每次嘗試的原始回應。
 
 ## 雲端功能
 
