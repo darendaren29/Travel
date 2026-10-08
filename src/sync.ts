@@ -13,6 +13,7 @@ import {
 import { db } from './firebase'
 import { useStore } from './store'
 import type { Trip } from './types'
+import { deleteTripFile } from './files'
 
 const trips = collection(db, 'trips')
 const WRITE_DEBOUNCE_MS = 600
@@ -82,11 +83,14 @@ export function startSync(uid: string): () => void {
       timers.delete(t.id)
       known.delete(t.id)
       const ref = doc(trips, t.id)
-      const op =
-        t.ownerId === uid
-          ? deleteDoc(ref)
-          : updateDoc(ref, { members: arrayRemove(uid), updatedAt: Date.now() })
-      op.catch((e: Error) => setSyncState('error', e.message))
+      if (t.ownerId === uid) {
+        // Remove the trip's files first: Storage rules check membership on the trip document.
+        Promise.allSettled(Object.values(t.docs ?? {}).map(deleteTripFile))
+          .then(() => deleteDoc(ref))
+          .catch((e: Error) => setSyncState('error', e.message))
+      } else {
+        updateDoc(ref, { members: arrayRemove(uid), updatedAt: Date.now() }).catch((e: Error) => setSyncState('error', e.message))
+      }
     }
 
     // Changed locally (or newly adopted/created): write.

@@ -325,6 +325,7 @@ function CardView({
     .filter(Boolean)
     .join(' ')
   const nav = canNavigate(a) ? navLinks(trip, a)[0] : null
+  const attachments = Object.values(trip.docs ?? {}).filter((d) => d.activityId === a.id).length
   return (
     <div className={cls} style={{ '--cat': meta.color } as React.CSSProperties} onClick={() => select(a.id)}>
       <div className="bar" />
@@ -340,6 +341,11 @@ function CardView({
         <div className="meta">
           {a.location && <span>📍 {a.location}</span>}
           {a.cost > 0 && <span>{formatMoney(a.cost, trip.currency)}</span>}
+          {attachments > 0 && (
+            <span className="clip" title={`${attachments} 個票券 / 附件`}>
+              📎 {attachments}
+            </span>
+          )}
         </div>
       </div>
       {a.photo && <img className="thumb" src={photoUrl(a.photo, 120)} alt="" loading="lazy" draggable={false} />}

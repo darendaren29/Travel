@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Activity, AuthUser, Leg, Trip } from './types'
+import type { Activity, AuthUser, Leg, Trip, TripDoc } from './types'
 import { sampleTrip } from './sample'
 import { duration, longId, toMinutes, toTime, uid } from './utils'
 import type { BasemapKey } from './basemaps'
 
-export type View = 'board' | 'map' | 'budget'
+export type View = 'board' | 'map' | 'budget' | 'docs'
 export type SyncState = 'off' | 'syncing' | 'synced' | 'error'
 export type RoutingState = 'idle' | 'loading' | 'error'
 
@@ -47,6 +47,11 @@ interface State {
   retimeDay: (dayIndex: number, travelMinutes: number[]) => void
   /** Apply a new visiting order to a day; times are re-chained from the first stop. */
   reorderDay: (dayIndex: number, orderedIds: string[]) => void
+
+  // uploaded files (metadata only; the bytes live in Firebase Storage)
+  addTripDoc: (doc: TripDoc) => void
+  updateTripDoc: (id: string, patch: Partial<Omit<TripDoc, 'id' | 'path'>>) => void
+  removeTripDoc: (id: string) => void
 
   // trips
   createTrip: (partial?: Partial<Trip>) => void
@@ -209,6 +214,20 @@ export const useStore = create<State>()(
           const incoming: Trip = { ...rest, id: longId(), updatedAt: Date.now(), ...ownerFields(get().user) }
           set((s) => ({ trips: [...s.trips, incoming], currentTripId: incoming.id, selectedActivityId: null }))
         },
+        addTripDoc: (doc) =>
+          mutate((t) => {
+            t.docs = { ...(t.docs ?? {}), [doc.id]: doc }
+          }),
+        updateTripDoc: (id, patch) =>
+          mutate((t) => {
+            const d = t.docs?.[id]
+            if (d) Object.assign(d, patch)
+          }),
+        removeTripDoc: (id) =>
+          mutate((t) => {
+            if (t.docs) delete t.docs[id]
+          }),
+
         replaceCurrentTrip: (content) => {
           mutate((t) => {
             const { id: _id, ownerId: _o, members: _m, allowJoin: _j, updatedAt: _u, ...rest } = clone(content)
@@ -315,6 +334,8 @@ export const useStore = create<State>()(
           mutate((t) => {
             delete t.activities[id]
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
+            // Keep attached files, just unlink them.
+            Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
           })
           if (get().selectedActivityId === id) set({ selectedActivityId: null })
         },

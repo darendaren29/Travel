@@ -4,6 +4,7 @@ import TripBar from './components/TripBar'
 import Board from './components/Board'
 import MapView from './components/MapView'
 import BudgetView from './components/BudgetView'
+import DocsView from './components/DocsView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
 import { useRouteSync } from './useRouteSync'
@@ -22,8 +23,9 @@ export default function App() {
           {view === 'board' && <Board />}
           {view === 'map' && <MapView />}
           {view === 'budget' && <BudgetView />}
+          {view === 'docs' && <DocsView />}
         </div>
-        {selected && view !== 'budget' && <ActivityEditor />}
+        {selected && (view === 'board' || view === 'map') && <ActivityEditor />}
       </div>
       <PrintView />
     </div>

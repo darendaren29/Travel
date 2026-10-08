@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { initializeFirestore } from 'firebase/firestore'
+import { getStorage } from 'firebase/storage'
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 import { RECAPTCHA_SITE_KEY } from './config'
 
@@ -33,3 +34,4 @@ export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 // Activities carry optional fields (lat/lng/notes) that may be undefined.
 export const db = initializeFirestore(app, { ignoreUndefinedProperties: true })
+export const storage = getStorage(app)

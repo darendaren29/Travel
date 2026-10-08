@@ -61,6 +61,32 @@ export interface Trip {
   travelMode?: TravelMode
   /** Route cache keyed by legKey(mode, from, to). */
   legs?: Record<string, Leg>
+  /** Uploaded tickets / bookings (files live in Firebase Storage). */
+  docs?: Record<string, TripDoc>
+}
+
+export type DocKind = 'flight' | 'lodging' | 'ticket' | 'other'
+
+export const DOC_KINDS: Record<DocKind, { label: string; icon: string }> = {
+  flight: { label: '機票 / 交通', icon: '✈️' },
+  lodging: { label: '住宿', icon: '🏨' },
+  ticket: { label: '門票', icon: '🎟️' },
+  other: { label: '其他', icon: '📎' },
+}
+
+export interface TripDoc {
+  id: string
+  /** Original file name shown to users. */
+  name: string
+  kind: DocKind
+  /** Firebase Storage object path. */
+  path: string
+  size: number
+  contentType: string
+  uploadedAt: number
+  uploadedBy?: string
+  /** Optional link to an activity in this trip. */
+  activityId?: string
 }
 
 export interface AuthUser {

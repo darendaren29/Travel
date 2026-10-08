@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://travel-planner-2734f.web.app",
+      "https://travel-planner-2734f.firebaseapp.com",
+      "http://localhost:5173"
+    ],
+    "method": ["GET"],
+    "maxAgeSeconds": 3600
+  }
+]

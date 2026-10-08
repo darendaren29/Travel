@@ -32,3 +32,13 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
         run: npx --yes firebase-tools@14 deploy --only hosting,firestore:rules --project travel-planner-2734f --non-interactive
+
+      # Separate step so the site still ships if Storage hasn't been set up in the console yet.
+      - name: Deploy Storage rules + CORS
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+        run: |
+          npx --yes firebase-tools@14 deploy --only storage --project travel-planner-2734f --non-interactive
+          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
+          gcloud storage buckets update gs://travel-planner-2734f.firebasestorage.app --cors-file=storage.cors.json --project travel-planner-2734f --quiet

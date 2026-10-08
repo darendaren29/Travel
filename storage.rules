@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Files attached to a trip: only that trip's members (see firestore.rules) may touch them.
+    match /trips/{tripId}/{docId}/{fileName} {
+      function isMember() {
+        return request.auth != null
+          && request.auth.uid in firestore.get(/databases/(default)/documents/trips/$(tripId)).data.members;
+      }
+
+      allow read, delete: if isMember();
+      allow create: if isMember()
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf|application/vnd[.]apple[.]pkpass');
+    }
+  }
+}

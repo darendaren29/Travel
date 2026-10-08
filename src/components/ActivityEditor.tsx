@@ -4,6 +4,7 @@ import { CATEGORIES, CATEGORY_META, type Activity } from '../types'
 import { duration, formatDuration } from '../utils'
 import { canNavigate, navLinks } from '../nav'
 import { photoUrl, searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
+import Attachments from './Attachments'
 
 export default function ActivityEditor() {
   const trip = useCurrentTrip()
@@ -185,6 +186,8 @@ export default function ActivityEditor() {
             )}
           </div>
         </div>
+
+        <Attachments activity={a} />
 
         {googleSearch && (
           <div className="field">

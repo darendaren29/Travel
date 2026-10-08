@@ -4,6 +4,17 @@
 
 **線上版本：https://travel-planner-2734f.web.app**
 
+## 🎫 票券夾（檔案上傳下載）
+
+「🎫 票券」分頁可上傳機票／登機證、住宿確認、門票等檔案（PDF、圖片、Apple Wallet `.pkpass`，單檔 20 MB），依類別分組，可開啟檢視、下載、重新命名、刪除，並連結到某個活動。活動編輯面板的「票券／附件」區可直接上傳並自動連結，卡片會顯示 📎 數量。
+
+- 檔案存在 **Firebase Storage** `trips/{tripId}/{fileId}/`，`storage.rules` 以 Firestore 的 `members` 判斷權限：只有該行程的擁有者與共編成員能讀寫
+- 檔案資訊（名稱、類別、大小、連結活動）存在行程文件中，自動同步給共編者
+- 擁有者刪除行程時會一併刪除其檔案
+- 需登入且行程已同步到雲端才能使用
+
+一次性設定：Firebase 主控台啟用 Storage；並在 IAM 為 `service-<專案編號>@gcp-sa-firebasestorage.iam.gserviceaccount.com` 加上「Firebase Rules Firestore Service Agent」角色（跨服務規則需要，非互動部署不會自動授予）。CORS（`storage.cors.json`）由 GitHub Actions 套用。
+
 ## ✨ AI 產生行程（Gemini）
 
 登入後按「✨ AI 產生」，輸入目的地、天數、預算、偏好（例如「喜歡美食和動漫、第一天 14:00 抵達」），Gemini 會產生逐日行程，含時間、地點座標、預估費用與提示，直接變成可拖拉調整的看板。
