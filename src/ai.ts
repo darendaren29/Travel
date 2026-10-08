@@ -1,149 +1,32 @@
-import { getAI, getGenerativeModel, GoogleAIBackend, Schema, VertexAIBackend } from 'firebase/ai'
 import { FunctionsError, httpsCallable } from 'firebase/functions'
-import { app, functions } from './firebase'
-import { AI_BACKENDS, GEMINI_MODELS, VERTEX_LOCATION, type AiProvider } from './config'
-import { ACTIVITY_FIELDS, AI_CATEGORIES, CLAUDE_DAILY_LIMIT, SYSTEM_PROMPT, buildPrompt, type AiTrip, type ItineraryRequest } from './aiPrompt'
+import { functions } from './firebase'
+import { CLAUDE_DAILY_LIMIT, CLAUDE_DAY_DAILY_LIMIT, type AiDay, type AiTrip, type DayRequest, type ItineraryRequest } from './aiPrompt'
 import { CATEGORIES, type Activity, type Category, type Trip } from './types'
 import { longId, toMinutes, toTime, uid } from './utils'
 
 export type { ItineraryRequest, AiTrip } from './aiPrompt'
 
-const activitySchema = Schema.object({
-  properties: {
-    title: Schema.string({ description: ACTIVITY_FIELDS.title }),
-    category: Schema.enumString({ enum: AI_CATEGORIES }),
-    start: Schema.string({ description: ACTIVITY_FIELDS.start }),
-    end: Schema.string({ description: ACTIVITY_FIELDS.end }),
-    location: Schema.string({ description: ACTIVITY_FIELDS.location }),
-    lat: Schema.number({ description: ACTIVITY_FIELDS.lat }),
-    lng: Schema.number({ description: ACTIVITY_FIELDS.lng }),
-    cost: Schema.integer({ description: ACTIVITY_FIELDS.cost }),
-    notes: Schema.string({ description: ACTIVITY_FIELDS.notes }),
-  },
-  optionalProperties: ['notes'],
-})
-
-const tripSchema = Schema.object({
-  properties: {
-    name: Schema.string({ description: '旅程名稱，例如「東京美食三日遊」' }),
-    destination: Schema.string(),
-    currency: Schema.string({ description: 'ISO 4217 幣別代碼' }),
-    days: Schema.array({
-      items: Schema.object({
-        properties: {
-          theme: Schema.string({ description: '當日主題' }),
-          activities: Schema.array({ items: activitySchema }),
-        },
-      }),
-    }),
-  },
-})
+// All AI runs on Claude through the claudeItinerary Cloud Function (functions/src/index.ts); the
+// Anthropic API key never reaches the browser.
 
 const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const isNotFound = (e: unknown) => /404|not found|NOT_FOUND|is not supported/i.test(msgOf(e))
-/** AI Studio prepay balance empty / billing missing — affects every model of that provider. */
-const isBilling = (e: unknown) => /prepayment|credits are depleted|\b402\b|payment required|billing (is )?(not|disabled)/i.test(msgOf(e))
-const isQuota = (e: unknown) => !isBilling(e) && /429|quota|RESOURCE_EXHAUSTED|rate.?limit/i.test(msgOf(e))
-const isOverloaded = (e: unknown) => /503|UNAVAILABLE|overloaded/i.test(msgOf(e))
-/** Provider not enabled for this project — affects every model of that provider. */
-const isDisabled = (e: unknown) => /\b403\b|PERMISSION_DENIED|SERVICE_DISABLED|API_DISABLED|has not been used|is disabled|not enabled/i.test(msgOf(e))
-/** Errors where the next model of the same provider may still work. */
-const shouldTryNextModel = (e: unknown) => isNotFound(e) || isQuota(e) || isOverloaded(e)
-/** Errors where the whole provider is unusable, so jump to the next provider. */
-const shouldTryNextBackend = (e: unknown) => isBilling(e) || isDisabled(e)
-
-/** Error carrying what each model answered, so the UI can show the real cause. */
-export class ItineraryError extends Error {
-  constructor(
-    message: string,
-    readonly attempts: { model: string; message: string }[],
-  ) {
-    super(message)
-  }
-}
 
 /** Friendlier wording for the errors users are likely to hit. */
-export const describeAiError = (e: unknown): string => {
-  if (e instanceof FunctionsError) return describeClaudeError(e)
-  const msg = msgOf(e)
-  if (/app check|appcheck|deactivated/i.test(msg)) return 'Firebase App Check 尚未設定或驗證失敗（請確認 reCAPTCHA 金鑰與 App Check 設定）。'
-  if (isBilling(msg))
-    return 'Gemini Developer API 的預付額度已用完（AI Studio 預付制）。請在 Firebase 主控台 → AI Logic 啟用 Vertex AI（用 Blaze 帳單後付），或到 AI Studio 儲值。'
-  if (isQuota(msg)) {
-    if (/limit:?\s*0\b/i.test(msg)) return '這個專案目前沒有可用的 Gemini 免費額度（上限為 0）。請確認 Firebase 已升級 Blaze 並連結帳單帳戶，或改用 Vertex AI。'
-    if (/per.?day|daily|PerDay/i.test(msg)) return '今天的 Gemini 免費額度已用完（每日上限），明天會重置；或升級付費層級提高上限。'
-    return '所有模型都暫時達到速率上限，請等 1 分鐘再試。'
-  }
-  if (isOverloaded(msg)) return 'Gemini 服務目前忙碌中，請稍後再試。'
-  if (/403|PERMISSION_DENIED|API has not been used|not enabled/i.test(msg)) return 'Firebase AI Logic 尚未在專案中啟用（Firebase 主控台 → AI Logic → 開始使用）。'
-  if (isNotFound(msg)) return '找不到可用的 Gemini 模型，請更新 src/config.ts 的 GEMINI_MODELS。'
-  // Our own JSON.parse of the model output failing (not an HTTP error that mentions JSON).
-  if (!/fetch-error/.test(msg) && /Unexpected end of JSON|Unterminated string in JSON|JSON at position/i.test(msg))
-    return 'Gemini 回傳的內容不完整（行程可能太長），請減少天數或分段產生。'
-  return msg
-}
+export const describeAiError = (e: unknown): string => (e instanceof FunctionsError ? describeClaudeError(e) : msgOf(e))
 
-/** Detail lines ("model: message") for an error from generateItinerary. */
-export const aiErrorDetails = (e: unknown): string[] =>
-  e instanceof ItineraryError
-    ? e.attempts.map((a) => `${a.model}：${a.message}`)
-    : e instanceof FunctionsError
-      ? [`Claude · ${e.code}：${e.message}`]
-      : [msgOf(e)]
+/** Raw error line for the "技術細節" disclosure. */
+export const aiErrorDetails = (e: unknown): string[] => (e instanceof FunctionsError ? [`Claude · ${e.code}：${e.message}`] : [msgOf(e)])
 
-const BACKEND_LABEL = { vertex: 'Vertex AI', developer: 'Developer API' } as const
-
-/**
- * Ask Gemini for an itinerary. Providers (AI_BACKENDS) and models (GEMINI_MODELS) are tried in
- * order: a missing / rate-limited / overloaded model moves on to the next model, a provider that
- * isn't enabled or has no billing moves on to the next provider. Anything else stops immediately.
- */
-async function generateWithGemini(req: ItineraryRequest): Promise<Trip> {
-  const attempts: { model: string; message: string }[] = []
-  for (const backendKey of AI_BACKENDS) {
-    const ai = getAI(app, { backend: backendKey === 'vertex' ? new VertexAIBackend(VERTEX_LOCATION) : new GoogleAIBackend() })
-    for (const modelName of GEMINI_MODELS) {
-      try {
-        const model = getGenerativeModel(ai, {
-          model: modelName,
-          systemInstruction: SYSTEM_PROMPT,
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: tripSchema,
-            temperature: 0.7,
-            // Long trips produce long JSON; leave room so it isn't cut off mid-object.
-            maxOutputTokens: 32768,
-          },
-        })
-        const result = await model.generateContent(buildPrompt(req))
-        const raw = JSON.parse(result.response.text()) as AiTrip
-        return toTrip(raw, req)
-      } catch (e) {
-        attempts.push({ model: `${BACKEND_LABEL[backendKey]} · ${modelName}`, message: msgOf(e) })
-        if (shouldTryNextBackend(e)) break
-        if (!shouldTryNextModel(e)) throw new ItineraryError(msgOf(e), attempts)
-      }
-    }
-  }
-  // Explain the most actionable cause: billing, then quota, then overload, then "not enabled".
-  const pick = (f: (m: string) => boolean) => attempts.find((a) => f(a.message))
-  const main = pick(isBilling) ?? pick(isQuota) ?? pick(isOverloaded) ?? pick(isDisabled) ?? attempts[attempts.length - 1]
-  throw new ItineraryError(main?.message ?? 'No Gemini model available', attempts)
-}
-
-const claudeCall = httpsCallable<ItineraryRequest, { trip: AiTrip; model: string }>(functions, 'claudeItinerary', {
+// One callable serves both jobs (`kind`), so no second function needs its own public-invoker setup.
+const claudeCall = httpsCallable<ItineraryRequest & { kind?: 'trip' }, { trip: AiTrip; model: string }>(functions, 'claudeItinerary', {
   // Matches the function's timeoutSeconds; long trips can take a few minutes.
   timeout: 540_000,
 })
 
-/** Ask Claude (Claude API, via the claudeItinerary Cloud Function) for an itinerary. */
-async function generateWithClaude(req: ItineraryRequest): Promise<Trip> {
-  const { data } = await claudeCall(req)
+/** Ask Claude for a whole itinerary. */
+export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
+  const { data } = await claudeCall({ ...req, kind: 'trip' })
   return toTrip(data.trip, req)
-}
-
-export function generateItinerary(req: ItineraryRequest, provider: AiProvider = 'gemini'): Promise<Trip> {
-  return provider === 'claude' ? generateWithClaude(req) : generateWithGemini(req)
 }
 
 /** Wording for errors from the claudeItinerary function (see functions/src/index.ts). */
@@ -151,7 +34,9 @@ function describeClaudeError(e: FunctionsError): string {
   const reason = (e.details as { reason?: string } | undefined)?.reason
   switch (reason) {
     case 'daily-limit':
-      return `今天的 Claude 產生次數已用完（每人每天 ${CLAUDE_DAILY_LIMIT} 次），明天再試，或改用 Gemini。`
+      return `今天的 Claude 產生次數已用完（每人每天 ${CLAUDE_DAILY_LIMIT} 次），明天再試。`
+    case 'daily-limit-day':
+      return `今天的 Claude 協作次數已用完（每人每天 ${CLAUDE_DAY_DAILY_LIMIT} 次），明天再試。`
     case 'bad-key':
       return 'Claude API 金鑰無效或已停用。請到 console.anthropic.com 建立新金鑰，更新 GitHub 的 ANTHROPIC_API_KEY secret 後重新部署。'
     case 'billing':
@@ -180,6 +65,29 @@ const TIME_RE =/^([01]?\d|2[0-3]):[0-5]\d$/
 const asTime = (s: string, fallback: string) => (TIME_RE.test(s) ? toTime(toMinutes(s)) : fallback)
 const asCategory = (c: string): Category => (CATEGORIES as string[]).includes(c) ? (c as Category) : 'other'
 
+type RawActivity = AiTrip['days'][number]['activities'][number]
+
+/** Normalise one model activity (times, category, coordinates, cost); `fallbackStart` when the time is unusable. */
+function normalizeActivity(a: RawActivity, id: string, fallbackStart: number): Activity {
+  const start = asTime(a.start, toTime(fallbackStart))
+  let end = asTime(a.end, toTime(toMinutes(start) + 60))
+  if (toMinutes(end) <= toMinutes(start)) end = toTime(toMinutes(start) + 60)
+  const geoOk =
+    Number.isFinite(a.lat) && Number.isFinite(a.lng) && Math.abs(a.lat) <= 90 && Math.abs(a.lng) <= 180 && (a.lat !== 0 || a.lng !== 0)
+  return {
+    id,
+    title: a.title.trim(),
+    category: asCategory(a.category),
+    start,
+    end,
+    location: a.location?.trim() || undefined,
+    lat: geoOk ? a.lat : undefined,
+    lng: geoOk ? a.lng : undefined,
+    cost: Math.max(0, Math.round(Number(a.cost) || 0)),
+    notes: a.notes?.trim() || undefined,
+  }
+}
+
 /** Validate and normalise the model output into our Trip shape. */
 export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
   const activities: Record<string, Activity> = {}
@@ -188,26 +96,10 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
     let cursor = 9 * 60
     for (const a of d.activities ?? []) {
       if (!a.title) continue
-      const start = asTime(a.start, toTime(cursor))
-      let end = asTime(a.end, toTime(toMinutes(start) + 60))
-      if (toMinutes(end) <= toMinutes(start)) end = toTime(toMinutes(start) + 60)
-      const geoOk =
-        Number.isFinite(a.lat) && Number.isFinite(a.lng) && Math.abs(a.lat) <= 90 && Math.abs(a.lng) <= 180 && (a.lat !== 0 || a.lng !== 0)
       const id = uid()
-      activities[id] = {
-        id,
-        title: a.title.trim(),
-        category: asCategory(a.category),
-        start,
-        end,
-        location: a.location?.trim() || undefined,
-        lat: geoOk ? a.lat : undefined,
-        lng: geoOk ? a.lng : undefined,
-        cost: Math.max(0, Math.round(Number(a.cost) || 0)),
-        notes: a.notes?.trim() || undefined,
-      }
+      activities[id] = normalizeActivity(a, id, cursor)
       ids.push(id)
-      cursor = toMinutes(end)
+      cursor = toMinutes(activities[id].end)
     }
     ids.sort((x, y) => toMinutes(activities[x].start) - toMinutes(activities[y].start))
     return { id: uid(), activityIds: ids }
@@ -225,4 +117,97 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
     activities,
     updatedAt: Date.now(),
   }
+}
+
+// ---------------------------------------------------------------------------
+// AI co-editing of one day
+// ---------------------------------------------------------------------------
+
+const claudeDayCall = httpsCallable<DayRequest & { kind: 'day' }, { day: AiDay; model: string }>(functions, 'claudeItinerary', { timeout: 300_000 })
+
+/** The request describing day `dayIndex` with `current` as its activities (the live day, or a pending proposal). */
+export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], instruction: string, history: string[]): DayRequest {
+  const date = new Date(trip.startDate + 'T00:00:00')
+  date.setDate(date.getDate() + dayIndex)
+  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const edge = (ids: string[] | undefined, last: boolean) => {
+    const a = ids?.length ? trip.activities[ids[last ? ids.length - 1 : 0]] : undefined
+    return a ? `${a.start}–${a.end} ${a.title}${a.location ? `（${a.location}）` : ''}` : ''
+  }
+  return {
+    destination: trip.destination,
+    currency: trip.currency,
+    date: iso,
+    dayNumber: dayIndex + 1,
+    totalDays: trip.days.length,
+    before: edge(trip.days[dayIndex - 1]?.activityIds, true),
+    after: edge(trip.days[dayIndex + 1]?.activityIds, false),
+    activities: current.map((a) => ({
+      id: a.id,
+      title: a.title,
+      category: a.category,
+      start: a.start,
+      end: a.end,
+      location: a.location ?? '',
+      ...(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : {}),
+      cost: a.cost,
+      notes: a.notes ?? '',
+    })),
+    instruction,
+    history,
+  }
+}
+
+/** Ask the AI to revise a day. Returns the explanation and the proposed activities (not yet applied). */
+export async function reviseDay(req: DayRequest, current: Activity[]): Promise<{ summary: string; activities: Activity[] }> {
+  const raw = (await claudeDayCall({ ...req, kind: 'day' })).data.day
+  return { summary: (raw.summary ?? '').trim(), activities: toDayProposal(raw, current) }
+}
+
+/**
+ * Turn the model's day into activities. Ids of existing activities are reused (each at most once) so
+ * photos and attached tickets stay linked; anything else becomes a new activity.
+ */
+export function toDayProposal(raw: AiDay, current: Activity[]): Activity[] {
+  const byId = new Map(current.map((a) => [a.id, a]))
+  const used = new Set<string>()
+  let cursor = 9 * 60
+  const out: Activity[] = []
+  for (const a of raw.activities ?? []) {
+    if (!a?.title) continue
+    const old = a.id && byId.has(a.id) && !used.has(a.id) ? byId.get(a.id)! : undefined
+    const id = old ? old.id : uid()
+    if (old) used.add(id)
+    const next = normalizeActivity(a, id, cursor)
+    // Keep the photo only while the place is unchanged.
+    if (old?.photo && (old.location ?? '') === (next.location ?? '')) next.photo = old.photo
+    out.push(next)
+    cursor = toMinutes(next.end)
+  }
+  return out.sort((x, y) => toMinutes(x.start) - toMinutes(y.start))
+}
+
+export type DayChange = { kind: 'added' } | { kind: 'changed'; what: string[] } | { kind: 'same' }
+
+/** What changed for each proposed activity, and which current ones would be removed. */
+export function diffDay(current: Activity[], proposal: Activity[]): { changes: Map<string, DayChange>; removed: Activity[] } {
+  const byId = new Map(current.map((a) => [a.id, a]))
+  const changes = new Map<string, DayChange>()
+  for (const a of proposal) {
+    const o = byId.get(a.id)
+    if (!o) {
+      changes.set(a.id, { kind: 'added' })
+      continue
+    }
+    const what: string[] = []
+    if (o.start !== a.start || o.end !== a.end) what.push(`時間 ${o.start}–${o.end} → ${a.start}–${a.end}`)
+    if (o.title !== a.title) what.push(`名稱「${o.title}」→「${a.title}」`)
+    if ((o.location ?? '') !== (a.location ?? '')) what.push('地點')
+    if (o.category !== a.category) what.push('類別')
+    if (o.cost !== a.cost) what.push(`花費 ${o.cost} → ${a.cost}`)
+    if ((o.notes ?? '') !== (a.notes ?? '')) what.push('備註')
+    changes.set(a.id, what.length ? { kind: 'changed', what } : { kind: 'same' })
+  }
+  const ids = new Set(proposal.map((a) => a.id))
+  return { changes, removed: current.filter((a) => !ids.has(a.id)) }
 }

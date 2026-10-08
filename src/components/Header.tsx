@@ -83,7 +83,7 @@ export default function Header() {
           </small>
         </div>
         {tabs}
-        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 AI 產生行程">
+        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 Claude 產生行程">
           ✨
         </button>
         {dialogs}
@@ -120,7 +120,7 @@ export default function Header() {
       {tabs}
 
       <div className="actions">
-        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 AI 產生行程">
+        <button className="btn sm ai" onClick={() => setAiOpen(true)} title="用 Claude 產生行程">
           ✨ <span className="lbl">AI 產生</span>
         </button>
         <input ref={fileRef} type="file" accept="application/json" hidden onChange={onImport} />

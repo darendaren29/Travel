@@ -82,6 +82,22 @@ interface State {
   /** Move an activity to a day at a given position, re-timing it to follow its new predecessor. */
   moveActivity: (id: string, toDayIndex: number, toIndex: number) => void
   duplicateActivity: (id: string) => void
+  /** Replace day `dayIndex` with `activities` (AI co-editing); keeps an undo snapshot. */
+  replaceDayActivities: (dayIndex: number, activities: Activity[], label: string) => void
+  /** Last AI day change, offered as "undo" for a short while (not persisted). */
+  dayUndo: DayUndo | null
+  undoDay: () => void
+  dismissDayUndo: () => void
+}
+
+export interface DayUndo {
+  tripId: string
+  dayIndex: number
+  label: string
+  activities: Activity[]
+  /** docId → activityId links that the change removed. */
+  docLinks: Record<string, string>
+  at: number
 }
 
 const ownerFields = (user: AuthUser | null): Partial<Trip> =>
@@ -105,6 +121,21 @@ const sortDay = (trip: Trip, dayIndex: number) => {
   day.activityIds.sort(
     (a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start),
   )
+}
+
+/** Make day `dayIndex` hold exactly `activities`; removed ones are deleted and their tickets unlinked. */
+const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
+  const day = t.days[dayIndex]
+  if (!day) return
+  const keep = new Set(activities.map((a) => a.id))
+  for (const id of day.activityIds) {
+    if (keep.has(id)) continue
+    delete t.activities[id]
+    Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
+  }
+  for (const a of activities) t.activities[a.id] = { ...a }
+  day.activityIds = activities.map((a) => a.id)
+  sortDay(t, dayIndex)
 }
 
 const findDayIndex = (trip: Trip, activityId: string): number =>
@@ -134,6 +165,7 @@ export const useStore = create<State>()(
         view: 'board',
         basemap: 'auto',
         compact: false,
+        dayUndo: null,
         selectedActivityId: null,
         pickingLocationFor: null,
         user: null,
@@ -344,6 +376,27 @@ export const useStore = create<State>()(
           })
           if (get().selectedActivityId === id) set({ selectedActivityId: null })
         },
+        replaceDayActivities: (dayIndex, activities, label) => {
+          const trip = get().trips.find((t) => t.id === get().currentTripId)
+          const day = trip?.days[dayIndex]
+          if (!trip || !day) return
+          const before = day.activityIds.map((id) => trip.activities[id]).filter(Boolean)
+          const docLinks: Record<string, string> = {}
+          Object.values(trip.docs ?? {}).forEach((d) => d.activityId && day.activityIds.includes(d.activityId) && (docLinks[d.id] = d.activityId))
+          mutate((t) => writeDay(t, dayIndex, activities))
+          set({ dayUndo: { tripId: trip.id, dayIndex, label, activities: before, docLinks, at: Date.now() } })
+        },
+        undoDay: () => {
+          const u = get().dayUndo
+          if (!u || u.tripId !== get().currentTripId) return set({ dayUndo: null })
+          mutate((t) => {
+            writeDay(t, u.dayIndex, u.activities)
+            // Re-link tickets that pointed at activities the change had removed.
+            for (const [docId, actId] of Object.entries(u.docLinks)) if (t.docs?.[docId] && t.activities[actId]) t.docs[docId].activityId = actId
+          })
+          set({ dayUndo: null })
+        },
+        dismissDayUndo: () => set({ dayUndo: null }),
         moveActivity: (id, toDayIndex, toIndex) =>
           mutate((t) => {
             const a = t.activities[id]

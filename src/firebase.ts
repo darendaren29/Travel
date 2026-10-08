@@ -18,7 +18,7 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig)
 
-// App Check proves requests come from this web app (required by Firebase AI Logic).
+// App Check proves requests come from this web app.
 if (RECAPTCHA_SITE_KEY) {
   if (import.meta.env?.DEV) {
     // On localhost the SDK prints a debug token to the console; register it under

@@ -25,7 +25,7 @@ export default function TripBar() {
           onChange={(e) => updateTrip({ name: e.target.value })}
           placeholder="旅程名稱"
           // Size to the text (CJK ≈ 1em, Latin ≈ 0.6em, plus letter-spacing) so long names aren't cut off; CSS caps it at 100%.
-          style={{ width: `calc(${titleEm(trip.name)}em + 20px)` }}
+          style={{ width: `calc(${titleEm(trip.name)}em + 30px)` }}
           title={trip.name}
         />
         {/* Only visible on narrow screens: toggles the detail fields below. */}

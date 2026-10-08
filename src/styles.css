@@ -3189,3 +3189,446 @@ textarea {
     margin-top: 0;
   }
 }
+
+/* =========================================================
+   AI 協作 (day co-editing) — a co-pilot's logbook
+   ========================================================= */
+.day-col .ai-day {
+  color: var(--primary);
+}
+
+.dialog.day-ai {
+  --day: var(--primary);
+  width: min(980px, 96vw);
+  height: min(720px, 92vh);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px 24px 18px;
+}
+
+.day-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.day-ai-stamp {
+  flex: none;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--day);
+  border: 2px solid var(--day);
+  box-shadow:
+    inset 0 0 0 3px var(--surface),
+    inset 0 0 0 4px color-mix(in srgb, var(--day) 70%, transparent);
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 19px;
+  line-height: 0.9;
+  transform: rotate(-9deg);
+}
+
+.day-ai-stamp small {
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.2em;
+  margin-bottom: 2px;
+}
+
+.day-ai-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.day-ai-title h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.day-ai-title span {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.day-ai-by {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary);
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.day-ai-signin {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.day-ai-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+/* left: the plan (current day or proposal) */
+.day-ai-plan {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(90deg, var(--day) 0 5px, transparent 5px),
+    var(--surface-2);
+  overflow: hidden;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 18px;
+  border-bottom: 1.5px dashed var(--border-strong);
+}
+
+.plan-head b {
+  font-family: var(--font-title);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.plan-head span {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px 8px 16px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 18px 4px;
+  text-align: center;
+}
+
+.plan-item {
+  --cat: var(--muted);
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--cat);
+  border-radius: var(--radius-sm);
+  animation: plan-in 0.35s var(--ease) both;
+}
+
+.plan-item.added {
+  border-color: var(--success);
+  border-left-color: var(--cat);
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+}
+
+.plan-item.changed {
+  border-color: var(--airmail-blue);
+  border-left-color: var(--cat);
+  background: color-mix(in srgb, var(--airmail-blue) 6%, var(--surface));
+}
+
+@keyframes plan-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.plan-time {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.plan-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plan-title {
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.plan-loc {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-what {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--airmail-blue);
+}
+
+.plan-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1.5px solid currentColor;
+  transform: rotate(4deg);
+  white-space: nowrap;
+}
+
+.plan-badge.add {
+  color: var(--success);
+}
+
+.plan-badge.chg {
+  color: var(--airmail-blue);
+}
+
+.plan-badge.del {
+  color: var(--danger);
+  transform: none;
+}
+
+.plan-removed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 9px 12px 10px 18px;
+  border-top: 1.5px dashed var(--border-strong);
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.plan-removed s {
+  opacity: 0.8;
+}
+
+/* right: the conversation */
+.day-ai-chat {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 4px;
+}
+
+.chat-intro {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.chat-round {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  max-width: 88%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  animation: plan-in 0.3s var(--ease) both;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--ink);
+  color: var(--surface);
+  border-bottom-right-radius: 3px;
+}
+
+.msg.ai {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-bottom-left-radius: 3px;
+}
+
+.msg.ai.error {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.msg.ai.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.msg details {
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+
+.quick-asks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-ask {
+  border: 1px dashed var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.quick-ask:hover:not(:disabled) {
+  border-style: solid;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+
+.quick-ask:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  min-height: 46px;
+  font-size: 14px;
+}
+
+.composer .btn {
+  flex: none;
+}
+
+.dialog.day-ai .actions {
+  margin-top: 0;
+}
+
+/* undo bar after applying a proposal */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  animation: plan-in 0.3s var(--ease) both;
+}
+
+.undo-bar .btn {
+  color: var(--ink);
+}
+
+.undo-bar .btn.ghost {
+  color: var(--surface);
+}
+
+@media (max-width: 760px) {
+  .dialog.day-ai {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    padding: 22px 14px 12px;
+  }
+
+  .day-ai-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 10px;
+  }
+
+  .quick-asks {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .quick-ask {
+    flex: none;
+  }
+
+  .undo-bar {
+    bottom: 14px;
+    width: max-content;
+    max-width: calc(100vw - 24px);
+  }
+}

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import DayAiDialog from './DayAiDialog'
 import {
   DndContext,
   DragOverlay,
@@ -73,6 +75,7 @@ export default function Board() {
   const { moveActivity, addDay } = useStore()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overDay, setOverDay] = useState<number | null>(null)
+  const [aiDay, setAiDay] = useState<number | null>(null)
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -140,13 +143,15 @@ export default function Board() {
         <DayNav trip={trip} boardRef={boardRef} dragging={!!activeId} />
         <div className="board" ref={boardRef}>
           {trip.days.map((_, i) => (
-            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} />
+            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} onAi={() => setAiDay(i)} />
           ))}
           <button className="add-day" onClick={addDay}>
             ＋ 新增一天
           </button>
         </div>
       </div>
+      {aiDay != null && aiDay < trip.days.length && createPortal(<DayAiDialog dayIndex={aiDay} onClose={() => setAiDay(null)} />, document.body)}
+      <DayUndoBar />
       <DragOverlay>{active ? <CardView activity={active} overlay /> : null}</DragOverlay>
     </DndContext>
   )
@@ -261,7 +266,32 @@ const travelBefore = (trip: Trip, activities: Activity[]): number[] =>
     return leg ? travelMinutes(leg) : 0
   })
 
-function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver: boolean }) {
+/** "AI updated day N · undo" bar shown for a while after applying an AI co-editing proposal. */
+function DayUndoBar() {
+  const undo = useStore((s) => s.dayUndo)
+  const tripId = useStore((s) => s.currentTripId)
+  const undoDay = useStore((s) => s.undoDay)
+  const dismiss = useStore((s) => s.dismissDayUndo)
+  useEffect(() => {
+    if (!undo) return
+    const t = setTimeout(dismiss, 15000)
+    return () => clearTimeout(t)
+  }, [undo, dismiss])
+  if (!undo || undo.tripId !== tripId) return null
+  return (
+    <div className="undo-bar" role="status">
+      <span>✨ 已套用 AI 提案到{undo.label}</span>
+      <button className="btn sm" onClick={undoDay}>
+        ↶ 復原
+      </button>
+      <button className="btn sm ghost" onClick={dismiss} aria-label="關閉">
+        ✕
+      </button>
+    </div>
+  )
+}
+
+function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; isOver: boolean; onAi: () => void }) {
   const { addActivity, removeDay, retimeDay, reorderDay } = useStore()
   const activities = dayActivities(trip, index)
   const conflicts = findConflicts(activities)
@@ -319,6 +349,9 @@ function DayColumn({ trip, index, isOver }: { trip: Trip; index: number; isOver:
           </span>
           <span className="day-name">第 {index + 1} 天</span>
           <span className="day-tools">
+            <button className="btn sm ghost ai-day" onClick={onAi} title="AI 協作：用一句話調整這一天">
+              ✨
+            </button>
             {routeUrl && (
               <button className="btn sm ghost" onClick={() => openUrl(routeUrl)} title="在 Google 地圖開啟當日路線">
                 🧭

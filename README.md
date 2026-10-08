@@ -15,27 +15,28 @@
 
 一次性設定：Firebase 主控台啟用 Storage；並在 IAM 為 `service-<專案編號>@gcp-sa-firebasestorage.iam.gserviceaccount.com` 加上「Firebase Rules Firestore Service Agent」角色（跨服務規則需要，非互動部署不會自動授予）。CORS（`storage.cors.json`）由 GitHub Actions 套用。
 
-## ✨ AI 產生行程（Gemini / Claude）
+## ✨ AI 產生行程（Claude）
 
-登入後按「✨ AI 產生」，輸入目的地、天數、預算、偏好（例如「喜歡美食和動漫、第一天 14:00 抵達」），Gemini 會產生逐日行程，含時間、地點座標、預估費用與提示，直接變成可拖拉調整的看板。
+登入後按「✨ AI 產生」，輸入目的地、天數、預算、偏好（例如「喜歡美食和動漫、第一天 14:00 抵達」），Claude 會產生逐日行程，含時間、地點座標、預估費用與提示，直接變成可拖拉調整的看板。
 
-技術：透過 **Firebase AI Logic** 呼叫 Gemini（`firebase/ai` + `GoogleAIBackend`），API 金鑰不會出現在前端；回應以 `responseSchema` 強制為 JSON，再經 `src/ai.ts` 的 `toTrip()` 驗證與修正（時間格式、類別、座標、費用）。
+## 🤝 AI 協作每日行程
 
-啟用步驟（一次性）：
-1. Firebase 主控台 → **AI Logic** → 開始使用；建議同時啟用 **Vertex AI Gemini API**（Blaze 帳單後付）
-2. 依引導設定 **App Check**（reCAPTCHA Enterprise），把網站金鑰填到 `src/config.ts` 的 `RECAPTCHA_SITE_KEY`
-3. `src/config.ts`：`AI_BACKENDS`（預設先 Vertex AI、再 Developer API）與 `GEMINI_MODELS` 依序嘗試——模型不存在／限流／忙碌會換下一個模型；供應方未啟用或沒有帳單（例如 AI Studio 預付額度用完）會換下一個供應方。失敗時對話框的「技術細節」列出每次嘗試的原始回應。
+每天欄位的 **✨** 打開「AI 協作」：用一句話告訴 Claude 想怎麼調整這一天（或點「補滿空檔」「改成雨天備案」等快捷需求），Claude 會回傳**提案**，左側清單標出 新增／修改（含時間變化）／刪除。可以繼續對話微調提案（每輪都以目前提案為基礎），確定後按「套用到第 N 天」；套用後畫面下方有「↶ 復原」。
+
+- 沒被要求修改的活動會沿用原本的 id，照片與已連結的票券都會保留
+- 送給 Claude 的內容：該天活動、前一天最後／隔天第一個安排（交通銜接）、目的地與日期
+- 每人每天 40 次（`CLAUDE_DAY_DAILY_LIMIT`），與產生整趟行程的 10 次分開計算
 
 ## 🤖 AI 產生行程（Claude）
 
-AI 對話框上方可切換 **Gemini / Claude**（會記住上次的選擇）。Claude 走 **Claude API（Anthropic 金鑰）**，由 Cloud Function `claudeItinerary`（`functions/`）呼叫：
+所有 AI 功能都走 **Claude API（Anthropic 金鑰）**，由 Cloud Function `claudeItinerary`（`functions/`，`kind: 'trip' | 'day'`）呼叫：
 
 ```
 瀏覽器 ── httpsCallable（需登入）──► Cloud Function（asia-east1）──► Claude API · Claude Opus 5.5
                                      金鑰存在 Secret Manager，只有函式讀得到
 ```
 
-- 與 Gemini 共用同一份提示與輸出格式（`src/aiPrompt.ts`），Claude 端用 structured outputs（JSON schema）保證回傳格式，前端再經同一個 `toTrip()` 修正
+- 提示詞與輸出格式在 `src/aiPrompt.ts`（前端與函式共用），Claude 用 structured outputs（JSON schema）保證回傳格式，前端再經 `toTrip()`／`toDayProposal()` 驗證修正
 - 函式只接受結構化欄位（目的地、天數…），不能被拿來當通用 Claude 代理；每位使用者每天最多 10 次（`CLAUDE_DAILY_LIMIT`，記錄在 Firestore `aiUsage/{uid}`，用戶端無權讀寫）
 - 啟用伺服器端 fallback（`fallbacks: "default"`）：若模型基於政策婉拒，API 會自動改用合適的模型重試
 - 費用從 Anthropic Console 帳戶的預付額度扣除（Opus 5.5：輸入 $4、輸出 $20／百萬 token），一次產生約數千到兩萬多 token
@@ -105,7 +106,7 @@ npm run typecheck  # TypeScript 檢查
 
 ## 技術
 
-React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Storage、Hosting、Cloud Functions）· Firebase AI Logic（Gemini）· Anthropic SDK（Claude API）
+React 19 · Vite 7 · TypeScript · Zustand（狀態與持久化）· @dnd-kit（拖拉）· react-leaflet（地圖）· Recharts（圖表）· lz-string（分享連結壓縮）· Firebase（Auth、Firestore、Storage、Hosting、Cloud Functions）· Anthropic SDK（Claude API）
 
 ## 專案結構
 
@@ -121,10 +122,10 @@ src/
   useRouteSync.ts   自動補齊目前旅程缺少的路段（防抖、併發 3、失敗 10 分鐘後重試）
   basemaps.ts       免費底圖清單與深色模式對應
   sample.ts         預設範例（東京三日遊）
-  config.ts         App Check 金鑰、Gemini 模型清單
+  config.ts         App Check、Google Maps 金鑰等設定
   firebase.ts       Firebase 初始化（公開的 web 設定、App Check）
-  aiPrompt.ts       AI 行程提示詞與輸出格式（前端與 Cloud Function 共用）
-  ai.ts             AI 行程產生：Gemini（Firebase AI Logic）、Claude（呼叫 Cloud Function）、結果驗證
+  aiPrompt.ts       AI 提示詞與輸出格式：整趟行程、單日協作（前端與 Cloud Function 共用）
+  ai.ts             呼叫 Claude（Cloud Function）、結果驗證、單日提案與差異比對
   auth.ts           Google 登入/登出、邀請連結加入
   sync.ts           Firestore 雙向同步（即時讀取、防抖寫入）
   components/
@@ -137,7 +138,8 @@ src/
     BudgetView.tsx  預算檢視
     PrintView.tsx   列印版面
     ShareDialog.tsx 分享連結 / 邀請共編對話框
-    AiDialog.tsx    AI 產生行程對話框（Gemini / Claude 切換）
+    AiDialog.tsx    AI 產生行程對話框
+    DayAiDialog.tsx AI 協作每日行程（提案、差異、多輪微調、套用）
 functions/
-  src/index.ts      claudeItinerary：Claude API（金鑰在 Secret Manager、登入檢查、每日上限、JSON schema 輸出）
+  src/index.ts      claudeItinerary：Claude API（整趟行程／單日協作；金鑰在 Secret Manager、登入檢查、每日上限、JSON schema 輸出）
 ```

@@ -2,23 +2,13 @@ import { useMemo, useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
 import { aiErrorDetails, describeAiError, generateItinerary, type ItineraryRequest } from '../ai'
 import { signIn } from '../auth'
-import { AI_MAX_DAYS, AI_PROVIDERS, type AiProvider } from '../config'
+import { AI_MAX_DAYS } from '../config'
 import { PACES } from '../aiPrompt'
 import { datesInText, spanMismatch } from '../dateHints'
 
 const md = (isoDate: string) => {
   const [, m, d] = isoDate.split('-')
   return `${Number(m)}/${Number(d)}`
-}
-
-const PROVIDER_KEY = 'travel-planner-ai-provider'
-const loadProvider = (): AiProvider => {
-  try {
-    const v = localStorage.getItem(PROVIDER_KEY)
-    return AI_PROVIDERS.some((p) => p.id === v) ? (v as AiProvider) : 'gemini'
-  } catch {
-    return 'gemini'
-  }
 }
 
 export default function AiDialog({ onClose }: { onClose: () => void }) {
@@ -35,16 +25,6 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
     preferences: '',
   })
   const [target, setTarget] = useState<'new' | 'replace'>('new')
-  const [provider, setProviderState] = useState<AiProvider>(loadProvider)
-  const providerInfo = AI_PROVIDERS.find((p) => p.id === provider) ?? AI_PROVIDERS[0]
-  const setProvider = (p: AiProvider) => {
-    setProviderState(p)
-    try {
-      localStorage.setItem(PROVIDER_KEY, p)
-    } catch {
-      /* private mode: just don't remember */
-    }
-  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [details, setDetails] = useState<string[]>([])
@@ -68,7 +48,7 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
     setError(null)
     setDetails([])
     try {
-      const generated = await generateItinerary({ ...form, days: Math.min(AI_MAX_DAYS, Math.max(1, form.days)) }, provider)
+      const generated = await generateItinerary({ ...form, days: Math.min(AI_MAX_DAYS, Math.max(1, form.days)) })
       if (target === 'new') importTrip(generated)
       else replaceCurrentTrip(generated)
       onClose()
@@ -83,7 +63,7 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="dialog-backdrop" onClick={busy ? undefined : onClose}>
       <div className="dialog ai-dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>✨ 用 AI 產生行程</h3>
+        <h3>✨ 用 Claude 產生行程</h3>
 
         {!user ? (
           <>
@@ -99,25 +79,6 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <div className="field">
-              <label>AI 模型</label>
-              <div className="segmented" role="radiogroup" aria-label="AI 模型">
-                {AI_PROVIDERS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={provider === p.id}
-                    className={provider === p.id ? 'active' : ''}
-                    onClick={() => setProvider(p.id)}
-                    disabled={busy}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="row">
               <div className="field" style={{ flex: 2 }}>
                 <label>目的地</label>
@@ -231,7 +192,7 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
               <button className="btn primary" onClick={() => void run()} disabled={busy}>
                 {busy ? (
                   <>
-                    <span className="spinner" /> {providerInfo.label} 規劃中…（{providerInfo.wait}）
+                    <span className="spinner" /> Claude 規劃中…（約 30 秒–2 分鐘）
                   </>
                 ) : (
                   '✨ 產生行程'
