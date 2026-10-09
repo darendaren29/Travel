@@ -7,17 +7,23 @@ import { consumeParam, isInAppBrowser } from './share'
 const tryJoin = async (tripId: string, uid: string) => {
   const store = useStore.getState()
   try {
+    store.setNotice('正在加入共編行程…')
     await joinTrip(tripId, uid)
     // The live query will deliver the trip; switch to it once it arrives.
-    const unsub = useStore.subscribe((s) => {
-      if (s.trips.some((t) => t.id === tripId)) {
-        s.switchTrip(tripId)
-        unsub()
-      }
-    })
+    const arrived = () => {
+      const t = useStore.getState().trips.find((x) => x.id === tripId)
+      if (!t) return false
+      useStore.getState().switchTrip(tripId)
+      useStore.getState().setNotice(`已加入共編行程「${t.name}」`)
+      return true
+    }
+    if (!arrived()) {
+      const unsub = useStore.subscribe(() => arrived() && unsub())
+    }
     store.setPendingJoin(null)
   } catch (e) {
     store.setPendingJoin(null)
+    store.setNotice(null)
     alert(`無法加入共編行程：${e instanceof Error ? e.message : String(e)}\n請確認邀請連結仍然有效。`)
   }
 }

@@ -34,7 +34,9 @@ if (RECAPTCHA_SITE_KEY) {
 export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 // Activities carry optional fields (lat/lng/notes) that may be undefined.
-export const db = initializeFirestore(app, { ignoreUndefinedProperties: true })
+// Long polling instead of the streaming WebChannel: some phones and in-app browsers can't keep the
+// stream open, which made the client report "offline" and never sync.
+export const db = initializeFirestore(app, { ignoreUndefinedProperties: true, experimentalForceLongPolling: true })
 export const storage = getStorage(app)
 /** Cloud Functions (functions/) — same region as Firestore. */
 export const functions = getFunctions(app, 'asia-east1')

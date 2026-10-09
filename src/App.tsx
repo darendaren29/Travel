@@ -8,14 +8,27 @@ import DocsView from './components/DocsView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
 import { useRouteSync } from './useRouteSync'
-import { JoinBanner, NoticeBar } from './components/Banners'
+import { InviteGate, JoinBanner, NoticeBar } from './components/Banners'
+import { useState } from 'react'
 
 export default function App() {
   const view = useStore((s) => s.view)
   const selected = useStore((s) => s.selectedActivityId)
   const compact = useStore((s) => s.compact)
   const toggleCompact = useStore((s) => s.toggleCompact)
+  const pendingJoin = useStore((s) => s.pendingJoin)
+  const user = useStore((s) => s.user)
+  const [gateSkipped, setGateSkipped] = useState(false)
   useRouteSync()
+
+  // Opened an invite while signed out: welcome page instead of the (unrelated) local trip.
+  if (pendingJoin && !user && !gateSkipped)
+    return (
+      <div className="app">
+        <InviteGate onSkip={() => setGateSkipped(true)} />
+        <NoticeBar />
+      </div>
+    )
 
   return (
     <div className="app">

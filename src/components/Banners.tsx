@@ -68,3 +68,49 @@ export function NoticeBar() {
     </div>
   )
 }
+
+/**
+ * Full-page welcome for someone who opened an invite link while signed out. Without it they would see
+ * the local sample trip and think the shared itinerary was wrong.
+ */
+export function InviteGate({ onSkip }: { onSkip: () => void }) {
+  const pendingJoin = useStore((s) => s.pendingJoin)
+  const [copied, setCopied] = useState(false)
+  if (!pendingJoin) return null
+  const inApp = isInAppBrowser()
+  const copy = async () => {
+    const url = inviteUrl(pendingJoin)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+    } catch {
+      prompt('請複製這個連結，貼到 Safari 或 Chrome 開啟：', url)
+    }
+  }
+  return (
+    <div className="invite-gate">
+      <div className="invite-card">
+        <span className="invite-stamp" aria-hidden="true">
+          ✉️
+        </span>
+        <h2>你收到一個共編邀請</h2>
+        <p>朋友邀請你一起編輯他的旅程。用 Google 登入後，就會自動打開那份行程，雙方的修改會即時同步。</p>
+        {inApp ? (
+          <>
+            <p className="invite-warn">這個 App 的內建瀏覽器無法使用 Google 登入。請點右上角「⋯」→「用瀏覽器開啟」，或複製連結到 Safari／Chrome。</p>
+            <button className="btn primary" onClick={() => void copy()}>
+              {copied ? '✓ 已複製連結' : '複製連結'}
+            </button>
+          </>
+        ) : (
+          <button className="btn primary invite-cta" onClick={() => void signIn()}>
+            Google 登入並加入
+          </button>
+        )}
+        <button className="invite-skip" onClick={onSkip}>
+          先不要，看我自己的行程
+        </button>
+      </div>
+    </div>
+  )
+}
