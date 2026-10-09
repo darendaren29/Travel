@@ -8,6 +8,7 @@ import DocsView from './components/DocsView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
 import { useRouteSync } from './useRouteSync'
+import { JoinBanner, NoticeBar } from './components/Banners'
 
 export default function App() {
   const view = useStore((s) => s.view)
@@ -18,6 +19,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <JoinBanner />
       <div className={`chrome ${compact ? 'is-compact' : ''}`}>
         <Header />
         {!compact && <TripBar />}
@@ -35,6 +37,7 @@ export default function App() {
         </div>
         {selected && (view === 'board' || view === 'map') && <ActivityEditor />}
       </div>
+      <NoticeBar />
       <PrintView />
     </div>
   )

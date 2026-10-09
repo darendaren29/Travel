@@ -4,6 +4,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   setDoc,
@@ -14,8 +15,10 @@ import { db } from './firebase'
 import { useStore } from './store'
 import type { Trip } from './types'
 import { deleteTripFile } from './files'
+import { isTrip } from './share'
 
 const trips = collection(db, 'trips')
+const shares = collection(db, 'shares')
 const WRITE_DEBOUNCE_MS = 600
 
 /**
@@ -117,4 +120,35 @@ export function startSync(uid: string): () => void {
 /** Accept an invite link: add the current user to the trip's members. */
 export async function joinTrip(tripId: string, uid: string): Promise<void> {
   await updateDoc(doc(trips, tripId), { members: arrayUnion(uid), updatedAt: Date.now() })
+}
+
+// ---------------------------------------------------------------------------
+// Share links: a snapshot anyone with the short link can open as their own copy
+// ---------------------------------------------------------------------------
+
+/** What a share snapshot contains: the itinerary without ownership, collaborators or ticket files. */
+export function shareCopy(trip: Trip): Trip {
+  const { ownerId: _o, members: _m, allowJoin: _j, docs: _d, shareId: _s, ...rest } = trip
+  void _o, void _m, void _j, void _d, void _s
+  return rest
+}
+
+const randomId = (len: number) => {
+  const abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = crypto.getRandomValues(new Uint8Array(len))
+  return Array.from(bytes, (b) => abc[b % abc.length]).join('')
+}
+
+/** Publish (or refresh) the share snapshot of `trip`; returns its id. Rules: anyone may read, only the creator may write. */
+export async function publishShare(trip: Trip, uid: string): Promise<string> {
+  const id = trip.shareId ?? randomId(12)
+  await setDoc(doc(shares, id), { trip: shareCopy(trip), createdBy: uid, updatedAt: Date.now() })
+  return id
+}
+
+/** Read a share snapshot (no sign-in needed). */
+export async function fetchShare(id: string): Promise<Trip | null> {
+  const snap = await getDoc(doc(shares, id))
+  const t = snap.data()?.trip
+  return isTrip(t) ? t : null
 }

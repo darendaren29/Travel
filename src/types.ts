@@ -55,6 +55,8 @@ export interface Trip {
   ownerId?: string
   members?: string[]
   allowJoin?: boolean
+  /** Id of this trip's public share snapshot (shares/{shareId}), once one was published. */
+  shareId?: string
   /** Epoch ms of the last local edit; used for last-write-wins sync. */
   updatedAt?: number
   /** How we travel between stops (default TRANSIT). */

@@ -59,3 +59,29 @@ export const consumeSharedTrip = (): Trip | null => {
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Short links (share snapshots and collaboration invites)
+// ---------------------------------------------------------------------------
+
+/** LINE opens links carrying this parameter in the phone's real browser (where Google sign-in works). */
+const EXTERNAL = 'openExternalBrowser=1'
+const base = () => `${location.origin}${location.pathname}`
+
+export const inviteUrl = (tripId: string) => `${base()}?join=${tripId}&${EXTERNAL}`
+export const shortShareUrl = (shareId: string) => `${base()}?share=${shareId}&${EXTERNAL}`
+
+/** Reads and removes a URL query parameter (and LINE's helper parameter). */
+export const consumeParam = (name: string): string | null => {
+  const params = new URLSearchParams(location.search)
+  const value = params.get(name)
+  if (!value) return null
+  params.delete(name)
+  params.delete('openExternalBrowser')
+  const qs = params.toString()
+  history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`)
+  return value
+}
+
+/** In-app browsers (LINE, Facebook, Instagram, WeChat…) where Google blocks sign-in. */
+export const isInAppBrowser = (ua = navigator.userAgent) => /\bLine\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger|KAKAOTALK|Threads/i.test(ua)

@@ -27,5 +27,16 @@ service cloud.firestore {
         || joiningViaInvite();
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
     }
+
+    // Share snapshots: anyone holding the (unguessable) link can read one; only its creator writes.
+    match /shares/{shareId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.auth != null && request.resource.data.createdBy == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
   }
 }

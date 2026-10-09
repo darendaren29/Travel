@@ -30,6 +30,9 @@ interface State {
   syncError: string | null
   /** Trip id from an invite link, waiting for the user to sign in. */
   pendingJoin: string | null
+  /** Short message shown at the bottom of the screen (share link opened, errors…). */
+  notice: string | null
+  setNotice: (n: string | null) => void
   routing: RoutingState
   routingError: string | null
 
@@ -172,6 +175,8 @@ export const useStore = create<State>()(
         syncState: 'off',
         syncError: null,
         pendingJoin: null,
+        notice: null,
+        setNotice: (notice) => set({ notice }),
         routing: 'idle',
         routingError: null,
 
@@ -244,10 +249,13 @@ export const useStore = create<State>()(
           }),
         updateTrip: (patch) => mutate((t) => Object.assign(t, patch)),
         importTrip: (trip) => {
-          const { ownerId: _o, members: _m, allowJoin: _j, ...rest } = clone(trip)
+          // A copy never brings the sender's ownership, collaborators, ticket files or share link.
+          const { ownerId: _o, members: _m, allowJoin: _j, docs: _d, shareId: _s, ...rest } = clone(trip)
           void _o
           void _m
           void _j
+          void _d
+          void _s
           const incoming: Trip = { ...rest, id: longId(), updatedAt: Date.now(), ...ownerFields(get().user) }
           set((s) => ({ trips: [...s.trips, incoming], currentTripId: incoming.id, selectedActivityId: null }))
         },

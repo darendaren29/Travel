@@ -2,19 +2,7 @@ import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from 'fireb
 import { auth, googleProvider } from './firebase'
 import { useStore } from './store'
 import { joinTrip, startSync } from './sync'
-
-const JOIN_PARAM = 'join'
-
-/** Reads `?join=<tripId>` from the URL once and clears it. */
-const consumeJoinParam = (): string | null => {
-  const params = new URLSearchParams(location.search)
-  const id = params.get(JOIN_PARAM)
-  if (!id) return null
-  params.delete(JOIN_PARAM)
-  const qs = params.toString()
-  history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`)
-  return id
-}
+import { consumeParam, isInAppBrowser } from './share'
 
 const tryJoin = async (tripId: string, uid: string) => {
   const store = useStore.getState()
@@ -37,7 +25,7 @@ const tryJoin = async (tripId: string, uid: string) => {
 /** Wire Firebase Auth to the store and start/stop cloud sync on sign-in/out. */
 export function initAuth() {
   const store = useStore.getState()
-  const pending = consumeJoinParam()
+  const pending = consumeParam('join')
   if (pending) store.setPendingJoin(pending)
 
   let stopSync: (() => void) | null = null
@@ -66,7 +54,9 @@ export const signIn = async () => {
   } catch (e) {
     const code = (e as { code?: string }).code ?? ''
     if (code.includes('popup-closed') || code.includes('cancelled')) return
-    alert(`登入失敗：${e instanceof Error ? e.message : String(e)}`)
+    if (isInAppBrowser())
+      alert('LINE、Facebook 等 App 的內建瀏覽器無法使用 Google 登入。\n請點右上角「⋯」選「用預設瀏覽器開啟」，或把網址複製到 Safari／Chrome。')
+    else alert(`登入失敗：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
