@@ -3,6 +3,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   onSnapshot,
   query,
@@ -19,6 +20,25 @@ import { isTrip } from './share'
 const trips = collection(db, 'trips')
 const shares = collection(db, 'shares')
 const WRITE_DEBOUNCE_MS = 600
+/** Firestore documents max out at 1 MiB; above this the route cache is left out of the write. */
+const MAX_DOC_BYTES = 900_000
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/**
+ * The document write for a trip. `members` goes through arrayUnion so a stale local copy can never
+ * drop a collaborator who joined meanwhile; `legs` is a cache and is dropped when the document would
+ * be too big.
+ */
+const tripWrite = (trip: Trip): Record<string, unknown> => {
+  const { members, legs, ...rest } = trip
+  const big = JSON.stringify(trip).length > MAX_DOC_BYTES
+  return {
+    ...rest,
+    ...(members?.length ? { members: arrayUnion(...members) } : {}),
+    legs: big || !legs ? deleteField() : legs,
+  }
+}
 
 /**
  * Two-way sync between the local store and Firestore for the signed-in user.
@@ -34,6 +54,8 @@ export function startSync(uid: string): () => void {
   const known = new Map<string, number>()
   /** Trip ids that have come from the server at least once (safe to remove if they vanish). */
   const seenRemote = new Set<string>()
+  /** Ids removed by the server (deleted, or we were removed): no delete/leave write for those. */
+  const removedRemotely = new Set<string>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
   setSyncState('syncing')
@@ -44,7 +66,15 @@ export function startSync(uid: string): () => void {
     const trip = store.getState().trips.find((t) => t.id === id)
     if (!trip || !trip.ownerId) return
     known.set(id, trip.updatedAt ?? 0)
-    setDoc(doc(trips, id), trip).catch((e: Error) => setSyncState('error', e.message))
+    const ref = doc(trips, id)
+    const write = seenRemote.has(id)
+      ? updateDoc(ref, tripWrite(trip)).catch((e: { code?: string }) => {
+          // Created on another device and not seen here yet, or not created at all.
+          if (e.code === 'not-found') return setDoc(ref, { ...trip, legs: trip.legs ?? {} })
+          throw e
+        })
+      : setDoc(ref, trip)
+    write.catch((e) => setSyncState('error', errMsg(e)))
   }
 
   const scheduleWrite = (id: string) => {
@@ -57,13 +87,15 @@ export function startSync(uid: string): () => void {
     query(trips, where('members', 'array-contains', uid)),
     (snap) => {
       const remote = snap.docs.map((d) => d.data() as Trip)
+      const ids = new Set(remote.map((t) => t.id))
+      // Gone from the server: applyRemoteTrips will drop them locally; that drop must not be
+      // mistaken for a local delete (which would try to write to a document we can't touch).
+      seenRemote.forEach((id) => !ids.has(id) && removedRemotely.add(id))
       remote.forEach((t) => {
         known.set(t.id, t.updatedAt ?? 0)
         seenRemote.add(t.id)
       })
       store.getState().applyRemoteTrips(remote, seenRemote)
-      // Anything we no longer see from the server can be forgotten.
-      const ids = new Set(remote.map((t) => t.id))
       seenRemote.forEach((id) => !ids.has(id) && seenRemote.delete(id))
       setSyncState('synced')
     },
@@ -80,6 +112,7 @@ export function startSync(uid: string): () => void {
     // Deleted locally: owners delete the document, members just leave it.
     for (const t of prev) {
       if (nextIds.has(t.id) || !t.ownerId) continue
+      if (removedRemotely.delete(t.id)) continue
       const existing = timers.get(t.id)
       if (existing) clearTimeout(existing)
       timers.delete(t.id)
@@ -89,9 +122,9 @@ export function startSync(uid: string): () => void {
         // Remove the trip's files first: Storage rules check membership on the trip document.
         Promise.allSettled(Object.values(t.docs ?? {}).map(deleteTripFile))
           .then(() => deleteDoc(ref))
-          .catch((e: Error) => setSyncState('error', e.message))
+          .catch((e) => setSyncState('error', errMsg(e)))
       } else {
-        updateDoc(ref, { members: arrayRemove(uid), updatedAt: Date.now() }).catch((e: Error) => setSyncState('error', e.message))
+        updateDoc(ref, { members: arrayRemove(uid), updatedAt: Date.now() }).catch((e) => setSyncState('error', errMsg(e)))
       }
     }
 
@@ -125,10 +158,10 @@ export async function joinTrip(tripId: string, uid: string): Promise<void> {
 // Share links: a snapshot anyone with the short link can open as their own copy
 // ---------------------------------------------------------------------------
 
-/** What a share snapshot contains: the itinerary without ownership, collaborators or ticket files. */
+/** What a share snapshot contains: the itinerary without ownership, collaborators, ticket files or the route cache. */
 export function shareCopy(trip: Trip): Trip {
-  const { ownerId: _o, members: _m, allowJoin: _j, docs: _d, shareId: _s, ...rest } = trip
-  void _o, void _m, void _j, void _d, void _s
+  const { ownerId: _o, members: _m, allowJoin: _j, docs: _d, shareId: _s, legs: _l, ...rest } = trip
+  void _o, void _m, void _j, void _d, void _s, void _l
   return rest
 }
 
@@ -164,6 +197,7 @@ const decodeFs = (v: FsValue): unknown => {
 
 /** Network trouble while opening a share (as opposed to "no such share"). */
 export class ShareOfflineError extends Error {}
+export class ShareForbiddenError extends Error {}
 
 /**
  * Read a share snapshot (no sign-in needed). Uses the plain Firestore REST API rather than the SDK's
@@ -177,15 +211,17 @@ export async function fetchShare(id: string): Promise<Trip | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetch(url)
-      if (res.status === 404 || res.status === 403) return null
+      if (res.status === 404) return null
+      if (res.status === 403) throw new ShareForbiddenError('沒有讀取權限（分享規則尚未部署）')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = (await res.json()) as { fields?: Record<string, FsValue> }
       const data = decodeFs({ mapValue: { fields: body.fields ?? {} } }) as { trip?: unknown }
       return isTrip(data.trip) ? data.trip : null
     } catch (e) {
+      if (e instanceof ShareForbiddenError) throw e
       last = e
       await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
     }
   }
-  throw new ShareOfflineError(last instanceof Error ? last.message : String(last))
+  throw new ShareOfflineError(errMsg(last))
 }

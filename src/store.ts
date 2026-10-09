@@ -30,6 +30,9 @@ interface State {
   syncError: string | null
   /** Trip id from an invite link, waiting for the user to sign in. */
   pendingJoin: string | null
+  /** Firebase has reported the initial sign-in state (so "signed out" is known, not just unknown yet). */
+  authReady: boolean
+  setAuthReady: () => void
   /** Short message shown at the bottom of the screen (share link opened, errors…). */
   notice: string | null
   setNotice: (n: string | null) => void
@@ -55,7 +58,8 @@ interface State {
   reorderDay: (dayIndex: number, orderedIds: string[]) => void
 
   // uploaded files (metadata only; the bytes live in Firebase Storage)
-  addTripDoc: (doc: TripDoc) => void
+  /** Record an uploaded file on a trip (the one it was uploaded to, even if the user switched meanwhile). */
+  addTripDoc: (doc: TripDoc, tripId?: string) => void
   updateTripDoc: (id: string, patch: Partial<Omit<TripDoc, 'id' | 'path'>>) => void
   removeTripDoc: (id: string) => void
 
@@ -119,12 +123,24 @@ const emptyTrip = (partial: Partial<Trip> = {}): Trip => ({
   ...partial,
 })
 
+/** A blank trip that counts as untouched until the user edits it. */
+const blankTrip = (): Trip => ({ ...emptyTrip(), updatedAt: undefined })
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** A local trip nobody has edited (the sample, or the blank trip after sign-out): never uploaded as is. */
+const isUntouched = (t: Trip) => !t.ownerId && !t.updatedAt
+
 const sortDay = (trip: Trip, dayIndex: number) => {
   const day = trip.days[dayIndex]
-  day.activityIds.sort(
-    (a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start),
-  )
+  // Drop ids whose activity is gone (defensive against a damaged document) and sort by start.
+  day.activityIds = day.activityIds.filter((id) => trip.activities[id])
+  day.activityIds.sort((a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start))
 }
+
+/** Unlink ticket files whose activity no longer exists. */
+const unlinkOrphanDocs = (t: Trip) =>
+  Object.values(t.docs ?? {}).forEach((doc) => doc.activityId && !t.activities[doc.activityId] && delete doc.activityId)
 
 /** Make day `dayIndex` hold exactly `activities`; removed ones are deleted and their tickets unlinked. */
 const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
@@ -141,6 +157,10 @@ const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
   sortDay(t, dayIndex)
 }
 
+/** The trip being viewed (same fallback as useCurrentTrip). */
+const currentTrip = (s: { trips: Trip[]; currentTripId: string }): Trip | undefined =>
+  s.trips.find((t) => t.id === s.currentTripId) ?? s.trips[0]
+
 const findDayIndex = (trip: Trip, activityId: string): number =>
   trip.days.findIndex((d) => d.activityIds.includes(activityId))
 
@@ -150,16 +170,21 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T
 export const useStore = create<State>()(
   persist(
     (set, get) => {
-      const mutate = (fn: (trip: Trip) => void) =>
+      const mutate = (fn: (trip: Trip) => void, tripId?: string) =>
         set((s) => {
+          // Fall back to the first trip if the stored current id no longer exists (matches useCurrentTrip).
+          const target = tripId ?? (s.trips.some((t) => t.id === s.currentTripId) ? s.currentTripId : s.trips[0]?.id)
           const trips = s.trips.map((t) => {
-            if (t.id !== s.currentTripId) return t
+            if (t.id !== target) return t
             const next = clone(t)
             fn(next)
             next.updatedAt = Date.now()
             return next
           })
-          return { trips }
+          // Keep the editor from pointing at an activity the change removed.
+          const cur = trips.find((t) => t.id === target)
+          const selectedActivityId = s.selectedActivityId && cur && !cur.activities[s.selectedActivityId] ? null : s.selectedActivityId
+          return { trips, selectedActivityId }
         })
 
       return {
@@ -175,6 +200,8 @@ export const useStore = create<State>()(
         syncState: 'off',
         syncError: null,
         pendingJoin: null,
+        authReady: false,
+        setAuthReady: () => set({ authReady: true }),
         notice: null,
         setNotice: (notice) => set({ notice }),
         routing: 'idle',
@@ -243,11 +270,16 @@ export const useStore = create<State>()(
         deleteTrip: (id) =>
           set((s) => {
             const trips = s.trips.filter((t) => t.id !== id)
-            if (trips.length === 0) trips.push(emptyTrip(ownerFields(s.user)))
+            if (trips.length === 0) trips.push(s.user ? emptyTrip(ownerFields(s.user)) : blankTrip())
             const currentTripId = s.currentTripId === id ? trips[0].id : s.currentTripId
             return { trips, currentTripId, selectedActivityId: null }
           }),
-        updateTrip: (patch) => mutate((t) => Object.assign(t, patch)),
+        updateTrip: (patch) =>
+          mutate((t) => {
+            // A half-typed or cleared date input would break every date in the app.
+            if (patch.startDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(patch.startDate)) delete patch.startDate
+            Object.assign(t, patch)
+          }),
         importTrip: (trip) => {
           // A copy never brings the sender's ownership, collaborators, ticket files or share link.
           const { ownerId: _o, members: _m, allowJoin: _j, docs: _d, shareId: _s, ...rest } = clone(trip)
@@ -259,10 +291,10 @@ export const useStore = create<State>()(
           const incoming: Trip = { ...rest, id: longId(), updatedAt: Date.now(), ...ownerFields(get().user) }
           set((s) => ({ trips: [...s.trips, incoming], currentTripId: incoming.id, selectedActivityId: null }))
         },
-        addTripDoc: (doc) =>
+        addTripDoc: (doc, tripId) =>
           mutate((t) => {
             t.docs = { ...(t.docs ?? {}), [doc.id]: doc }
-          }),
+          }, tripId),
         updateTripDoc: (id, patch) =>
           mutate((t) => {
             const d = t.docs?.[id]
@@ -282,6 +314,7 @@ export const useStore = create<State>()(
             void _j
             void _u
             Object.assign(t, rest)
+            unlinkOrphanDocs(t)
           })
           set({ selectedActivityId: null })
         },
@@ -297,9 +330,10 @@ export const useStore = create<State>()(
           set((s) => {
             let currentTripId = s.currentTripId
             const trips = s.trips.map((t) => {
-              // The untouched sample stays local for now: applyRemoteTrips decides whether
-              // this user already has cloud trips (drop it) or is brand new (adopt it).
-              if (t.ownerId || (t.id === sampleTrip.id && !t.updatedAt)) return t
+              // Untouched trips (the sample, the blank one after sign-out) stay local for now:
+              // applyRemoteTrips decides whether this user already has cloud trips (drop them) or is
+              // brand new (adopt one). Without this, every sign-out/sign-in would upload a junk trip.
+              if (t.ownerId || isUntouched(t)) return t
               const adopted: Trip = { ...t, id: longId(), ownerId: userId, members: [userId], updatedAt: Date.now() }
               if (t.id === currentTripId) currentTripId = adopted.id
               return adopted
@@ -322,10 +356,10 @@ export const useStore = create<State>()(
                 remoteById.delete(local.id)
               } else if (local.ownerId && removable.has(local.id)) {
                 continue // deleted remotely, or we were removed from it
-              } else if (!local.ownerId && local.id === sampleTrip.id && !local.updatedAt) {
-                // Untouched sample: a returning user already has trips → drop it;
-                // a brand-new user gets it as their first cloud trip.
-                if (remote.length > 0 || !s.user) continue
+              } else if (isUntouched(local)) {
+                // Untouched sample / blank trip: a returning user already has trips → drop it;
+                // a brand-new user gets the sample as their first cloud trip (a blank one is dropped).
+                if (remote.length > 0 || !s.user || local.id !== sampleTrip.id) continue
                 kept.push({ ...local, id: longId(), ...ownerFields(s.user), updatedAt: Date.now() })
               } else {
                 kept.push(local)
@@ -334,12 +368,15 @@ export const useStore = create<State>()(
             remoteById.forEach((t) => kept.push(t))
             if (kept.length === 0) kept.push(emptyTrip(ownerFields(s.user)))
             const currentTripId = kept.some((t) => t.id === s.currentTripId) ? s.currentTripId : kept[0].id
-            return { trips: kept, currentTripId }
+            // A collaborator may have deleted the activity being edited.
+            const cur = kept.find((t) => t.id === currentTripId)
+            const selectedActivityId = s.selectedActivityId && cur && !cur.activities[s.selectedActivityId] ? null : s.selectedActivityId
+            return { trips: kept, currentTripId, selectedActivityId }
           }),
 
         resetLocal: () => {
-          const trip = emptyTrip()
-          set({ trips: [trip], currentTripId: trip.id, selectedActivityId: null, pickingLocationFor: null })
+          const trip = blankTrip()
+          set({ trips: [trip], currentTripId: trip.id, selectedActivityId: null, pickingLocationFor: null, dayUndo: null })
         },
 
         addActivity: (dayIndex, partial = {}) => {
@@ -369,6 +406,9 @@ export const useStore = create<State>()(
           mutate((t) => {
             const a = t.activities[id]
             if (!a) return
+            // Ignore half-typed / cleared time inputs; "" would otherwise be stored and shown.
+            if (patch.start !== undefined && !TIME_RE.test(patch.start)) delete patch.start
+            if (patch.end !== undefined && !TIME_RE.test(patch.end)) delete patch.end
             Object.assign(a, patch)
             // keep end >= start
             if (toMinutes(a.end) < toMinutes(a.start)) a.end = a.start
@@ -385,7 +425,7 @@ export const useStore = create<State>()(
           if (get().selectedActivityId === id) set({ selectedActivityId: null })
         },
         replaceDayActivities: (dayIndex, activities, label) => {
-          const trip = get().trips.find((t) => t.id === get().currentTripId)
+          const trip = currentTrip(get())
           const day = trip?.days[dayIndex]
           if (!trip || !day) return
           const before = day.activityIds.map((id) => trip.activities[id]).filter(Boolean)
@@ -428,7 +468,7 @@ export const useStore = create<State>()(
             sortDay(t, toDayIndex)
           }),
         duplicateActivity: (id) => {
-          const trip = get().trips.find((t) => t.id === get().currentTripId)
+          const trip = currentTrip(get())
           if (!trip) return
           const di = findDayIndex(trip, id)
           const src = trip.activities[id]

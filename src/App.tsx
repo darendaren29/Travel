@@ -18,14 +18,17 @@ export default function App() {
   const toggleCompact = useStore((s) => s.toggleCompact)
   const pendingJoin = useStore((s) => s.pendingJoin)
   const user = useStore((s) => s.user)
+  const authReady = useStore((s) => s.authReady)
   const [gateSkipped, setGateSkipped] = useState(false)
   useRouteSync()
 
   // Opened an invite while signed out: welcome page instead of the (unrelated) local trip.
+  // Until Firebase reports the sign-in state, show neither (a signed-in user would otherwise see
+  // the invite page flash before being joined automatically).
   if (pendingJoin && !user && !gateSkipped)
     return (
       <div className="app">
-        <InviteGate onSkip={() => setGateSkipped(true)} />
+        {authReady ? <InviteGate onSkip={() => setGateSkipped(true)} /> : <div className="invite-gate" />}
         <NoticeBar />
       </div>
     )

@@ -15,7 +15,7 @@ export interface NavLink {
 }
 
 export const googleUrl = (a: Activity): string =>
-  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(point(a))}${hasGeo(a) ? '' : ''}`
+  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(point(a))}`
 
 export const appleUrl = (a: Activity): string =>
   hasGeo(a)

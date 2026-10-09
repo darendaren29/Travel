@@ -42,7 +42,7 @@ export function useUploader() {
             uid: user.uid,
             onProgress: (p) => patchItem(key, { progress: p }),
           })
-          addTripDoc(doc)
+          addTripDoc(doc, trip.id) // not the trip the user may have switched to meanwhile
           patchItem(key, { progress: 1 })
           setTimeout(() => dropItem(key), 1200)
         } catch (e) {

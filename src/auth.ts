@@ -21,23 +21,36 @@ const tryJoin = async (tripId: string, uid: string) => {
       const unsub = useStore.subscribe(() => arrived() && unsub())
     }
     store.setPendingJoin(null)
+    sessionStorage.removeItem(JOIN_KEY)
   } catch (e) {
     store.setPendingJoin(null)
+    sessionStorage.removeItem(JOIN_KEY)
     store.setNotice(null)
     alert(`無法加入共編行程：${e instanceof Error ? e.message : String(e)}\n請確認邀請連結仍然有效。`)
   }
 }
 
 /** Wire Firebase Auth to the store and start/stop cloud sync on sign-in/out. */
+const JOIN_KEY = 'travel-planner-pending-join'
+
 export function initAuth() {
   const store = useStore.getState()
-  const pending = consumeParam('join')
-  if (pending) store.setPendingJoin(pending)
+  // Remembered per tab so an invite survives a sign-in redirect or an accidental reload.
+  const pending = consumeParam('join') ?? sessionStorage.getItem(JOIN_KEY)
+  if (pending) {
+    store.setPendingJoin(pending)
+    try {
+      sessionStorage.setItem(JOIN_KEY, pending)
+    } catch {
+      /* private mode */
+    }
+  }
 
   let stopSync: (() => void) | null = null
 
   onAuthStateChanged(auth, (u) => {
     const s = useStore.getState()
+    s.setAuthReady()
     if (u) {
       s.setUser({ uid: u.uid, name: u.displayName ?? u.email ?? '使用者', email: u.email ?? '', photo: u.photoURL ?? undefined })
       stopSync?.()

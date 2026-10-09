@@ -6,7 +6,7 @@ import App from './App'
 import { clearParam, consumeSharedTrip, readParam } from './share'
 import { useStore } from './store'
 import { initAuth } from './auth'
-import { fetchShare, ShareOfflineError } from './sync'
+import { fetchShare, ShareForbiddenError, ShareOfflineError } from './sync'
 
 // Older long links carry the whole trip in the hash.
 const shared = consumeSharedTrip()
@@ -25,9 +25,11 @@ if (shareId) {
       importTrip(trip)
       setNotice(`已加入「${trip.name}」的副本，可以自由編輯`)
     })
-    .catch((e) =>
-      setNotice(e instanceof ShareOfflineError ? '網路連線不穩，無法開啟分享的行程。請確認網路後重新整理頁面再試一次。' : `無法開啟分享的行程：${String(e)}`),
-    )
+    .catch((e) => {
+      if (e instanceof ShareOfflineError) setNotice('網路連線不穩，無法開啟分享的行程。請確認網路後重新整理頁面再試一次。')
+      else if (e instanceof ShareForbiddenError) setNotice(`無法開啟分享的行程：${e.message}`)
+      else setNotice(`無法開啟分享的行程：${e instanceof Error ? e.message : String(e)}`)
+    })
 }
 
 initAuth()

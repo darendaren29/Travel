@@ -42,7 +42,10 @@ export default function Header() {
   }
 
   const onDelete = () => {
-    const msg = isOwner ? `確定要刪除「${trip.name}」？此操作無法復原。` : `退出共編行程「${trip.name}」？`
+    const shared = (trip.members?.length ?? 0) > 1
+    const msg = isOwner
+      ? `確定要刪除「${trip.name}」？${shared ? '共編成員也會失去這個行程。' : ''}此操作無法復原。`
+      : `退出共編行程「${trip.name}」？`
     if (confirm(msg)) deleteTrip(trip.id)
   }
 
