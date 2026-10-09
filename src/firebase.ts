@@ -7,7 +7,7 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-ch
 import { RECAPTCHA_SITE_KEY } from './config'
 
 // Public web app identifiers (not secrets) — access is controlled by firestore.rules.
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: 'AIzaSyBkVB7HAo73_wUl1bVy9fpbuz2Xt1ywbHk',
   authDomain: 'travel-planner-2734f.firebaseapp.com',
   projectId: 'travel-planner-2734f',

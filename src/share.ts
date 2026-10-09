@@ -71,15 +71,22 @@ const base = () => `${location.origin}${location.pathname}`
 export const inviteUrl = (tripId: string) => `${base()}?join=${tripId}&${EXTERNAL}`
 export const shortShareUrl = (shareId: string) => `${base()}?share=${shareId}&${EXTERNAL}`
 
-/** Reads and removes a URL query parameter (and LINE's helper parameter). */
-export const consumeParam = (name: string): string | null => {
+/** Reads a URL query parameter. */
+export const readParam = (name: string): string | null => new URLSearchParams(location.search).get(name)
+
+/** Removes a URL query parameter (and LINE's helper parameter) without reloading. */
+export const clearParam = (name: string) => {
   const params = new URLSearchParams(location.search)
-  const value = params.get(name)
-  if (!value) return null
   params.delete(name)
   params.delete('openExternalBrowser')
   const qs = params.toString()
   history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`)
+}
+
+/** Reads and removes a URL query parameter. */
+export const consumeParam = (name: string): string | null => {
+  const value = readParam(name)
+  if (value) clearParam(name)
   return value
 }
 

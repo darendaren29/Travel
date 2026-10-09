@@ -4,14 +4,13 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   onSnapshot,
   query,
   setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, firebaseConfig } from './firebase'
 import { useStore } from './store'
 import type { Trip } from './types'
 import { deleteTripFile } from './files'
@@ -146,9 +145,47 @@ export async function publishShare(trip: Trip, uid: string): Promise<string> {
   return id
 }
 
-/** Read a share snapshot (no sign-in needed). */
+type FsValue = Record<string, unknown>
+
+/** Decode a Firestore REST value into plain JSON. */
+const decodeFs = (v: FsValue): unknown => {
+  if ('stringValue' in v) return v.stringValue
+  if ('integerValue' in v) return Number(v.integerValue)
+  if ('doubleValue' in v) return v.doubleValue
+  if ('booleanValue' in v) return v.booleanValue
+  if ('timestampValue' in v) return v.timestampValue
+  if ('mapValue' in v) {
+    const fields = ((v.mapValue as { fields?: Record<string, FsValue> }).fields ?? {}) as Record<string, FsValue>
+    return Object.fromEntries(Object.entries(fields).map(([k, x]) => [k, decodeFs(x)]))
+  }
+  if ('arrayValue' in v) return ((v.arrayValue as { values?: FsValue[] }).values ?? []).map(decodeFs)
+  return null
+}
+
+/** Network trouble while opening a share (as opposed to "no such share"). */
+export class ShareOfflineError extends Error {}
+
+/**
+ * Read a share snapshot (no sign-in needed). Uses the plain Firestore REST API rather than the SDK's
+ * streaming connection, which some phones / in-app browsers can't open ("client is offline").
+ * Retries a few times; resolves null when the share doesn't exist.
+ */
 export async function fetchShare(id: string): Promise<Trip | null> {
-  const snap = await getDoc(doc(shares, id))
-  const t = snap.data()?.trip
-  return isTrip(t) ? t : null
+  const { projectId, apiKey } = firebaseConfig
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/shares/${encodeURIComponent(id)}?key=${apiKey}`
+  let last: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url)
+      if (res.status === 404 || res.status === 403) return null
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const body = (await res.json()) as { fields?: Record<string, FsValue> }
+      const data = decodeFs({ mapValue: { fields: body.fields ?? {} } }) as { trip?: unknown }
+      return isTrip(data.trip) ? data.trip : null
+    } catch (e) {
+      last = e
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+    }
+  }
+  throw new ShareOfflineError(last instanceof Error ? last.message : String(last))
 }
