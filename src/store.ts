@@ -100,6 +100,21 @@ interface State {
   dayUndo: DayUndo | null
   undoDay: () => void
   dismissDayUndo: () => void
+  /** Last deleted activity, offered as "undo" instead of a confirm dialog (not persisted). */
+  deleted: DeletedActivity | null
+  undoDelete: () => void
+  dismissDeleted: () => void
+}
+
+export interface DeletedActivity {
+  tripId: string
+  activity: Activity
+  /** Day it was on, or -1 for the spare list. */
+  dayIndex: number
+  index: number
+  /** Ticket ids that were linked to it. */
+  docIds: string[]
+  at: number
 }
 
 export interface DayUndo {
@@ -205,8 +220,10 @@ export const useStore = create<State>()(
         currentTripId: sampleTrip.id,
         view: 'board',
         basemap: 'auto',
-        compact: false,
+        // Phones start with the chrome folded away so the board gets the screen; a stored choice wins.
+        compact: typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 640px)').matches),
         dayUndo: null,
+        deleted: null,
         selectedActivityId: null,
         pickingLocationFor: null,
         user: null,
@@ -434,6 +451,14 @@ export const useStore = create<State>()(
             if (di >= 0) sortDay(t, di)
           }),
         deleteActivity: (id) => {
+          const trip = currentTrip(get())
+          const activity = trip?.activities[id]
+          if (!trip || !activity) return
+          const dayIndex = findDayIndex(trip, id)
+          const index = dayIndex >= 0 ? trip.days[dayIndex].activityIds.indexOf(id) : (trip.spare ?? []).indexOf(id)
+          const docIds = Object.values(trip.docs ?? {})
+            .filter((d) => d.activityId === id)
+            .map((d) => d.id)
           mutate((t) => {
             delete t.activities[id]
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
@@ -441,8 +466,33 @@ export const useStore = create<State>()(
             // Keep attached files, just unlink them.
             Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
           })
-          if (get().selectedActivityId === id) set({ selectedActivityId: null })
+          set({
+            deleted: { tripId: trip.id, activity: { ...activity }, dayIndex, index, docIds, at: Date.now() },
+            dayUndo: null,
+            ...(get().selectedActivityId === id ? { selectedActivityId: null } : {}),
+          })
         },
+        undoDelete: () => {
+          const d = get().deleted
+          if (!d) return
+          set({ deleted: null })
+          if (d.tripId !== get().currentTripId) return
+          mutate((t) => {
+            if (t.activities[d.activity.id]) return
+            t.activities[d.activity.id] = { ...d.activity }
+            if (d.dayIndex >= 0 && t.days[d.dayIndex]) {
+              t.days[d.dayIndex].activityIds.splice(Math.min(d.index, t.days[d.dayIndex].activityIds.length), 0, d.activity.id)
+              sortDay(t, d.dayIndex)
+            } else {
+              const spare = spareIds(t)
+              spare.splice(Math.min(Math.max(0, d.index), spare.length), 0, d.activity.id)
+              t.activities[d.activity.id].start = ''
+              t.activities[d.activity.id].end = ''
+            }
+            for (const docId of d.docIds) if (t.docs?.[docId]) t.docs[docId].activityId = d.activity.id
+          })
+        },
+        dismissDeleted: () => set({ deleted: null }),
         replaceDayActivities: (dayIndex, activities, label) => {
           const trip = currentTrip(get())
           const day = trip?.days[dayIndex]

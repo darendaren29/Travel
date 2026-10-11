@@ -34,6 +34,7 @@ import {
   formatDuration,
   formatMoney,
   spareActivities,
+  todayIndex,
   toMinutes,
 } from '../utils'
 import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
@@ -71,9 +72,9 @@ const collision: CollisionDetection = (args) => {
 }
 
 /** Scroll the board so day `i` is the first column. */
-const scrollToDay = (board: HTMLElement | null, i: number) => {
+const scrollToDay = (board: HTMLElement | null, i: number, behavior: ScrollBehavior = 'smooth') => {
   const col = board?.querySelectorAll<HTMLElement>('.day-col')[i]
-  if (board && col) board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior: 'smooth' })
+  if (board && col) board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior })
 }
 
 export default function Board() {
@@ -143,6 +144,13 @@ export default function Board() {
   const boardRef = useRef<HTMLDivElement>(null)
   useWheelToHorizontal(boardRef)
 
+  // While the trip is under way, open on today's column.
+  const today = todayIndex(trip)
+  useEffect(() => {
+    if (today > 0) scrollToDay(boardRef.current, today, 'auto')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id])
+
   return (
     <DndContext
       sensors={sensors}
@@ -161,7 +169,7 @@ export default function Board() {
         <DayNav trip={trip} boardRef={boardRef} dragging={!!activeId} />
         <div className="board" ref={boardRef}>
           {trip.days.map((_, i) => (
-            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} onAi={() => setAiDay(i)} />
+            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} today={i === today} onAi={() => setAiDay(i)} />
           ))}
           <SpareColumn trip={trip} isOver={overDay === SPARE} />
           <button className="add-day" onClick={addDay}>
@@ -171,6 +179,7 @@ export default function Board() {
       </div>
       {aiDay != null && aiDay < trip.days.length && createPortal(<DayAiDialog dayIndex={aiDay} onClose={() => setAiDay(null)} />, document.body)}
       <DayUndoBar />
+      <DeleteUndoBar />
       <DragOverlay>{active ? <CardView activity={active} overlay /> : null}</DragOverlay>
     </DndContext>
   )
@@ -200,6 +209,7 @@ function useWheelToHorizontal(ref: React.RefObject<HTMLDivElement | null>) {
 function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefObject<HTMLDivElement | null>; dragging: boolean }) {
   const [visible, setVisible] = useState<Set<number>>(new Set([0]))
   const chipsRef = useRef<HTMLDivElement>(null)
+  const today = todayIndex(trip)
 
   useEffect(() => {
     const board = boardRef.current
@@ -244,7 +254,7 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
       </button>
       <div className="day-chips" ref={chipsRef}>
         {trip.days.map((d, i) => (
-          <DayChip key={d.id} trip={trip} index={i} on={visible.has(i)} current={i === first} onClick={() => goTo(i)} />
+          <DayChip key={d.id} trip={trip} index={i} on={visible.has(i)} current={i === first} today={i === today} onClick={() => goTo(i)} />
         ))}
         <SpareChip count={trip.spare?.length ?? 0} on={visible.has(n - 1)} current={first === n - 1} onClick={() => goTo(n - 1)} />
       </div>
@@ -258,17 +268,17 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
   )
 }
 
-function DayChip({ trip, index: i, on, current, onClick }: { trip: Trip; index: number; on: boolean; current: boolean; onClick: () => void }) {
+function DayChip({ trip, index: i, on, current, today, onClick }: { trip: Trip; index: number; on: boolean; current: boolean; today: boolean; onClick: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: chipId(i) })
   const date = addDays(trip.startDate, i)
   return (
     <button
       ref={setNodeRef}
-      className={`day-chip ${on ? 'on' : ''} ${isOver ? 'drop' : ''}`}
+      className={`day-chip ${on ? 'on' : ''} ${isOver ? 'drop' : ''} ${today ? 'today' : ''}`}
       style={{ '--day': dayColor(i) } as React.CSSProperties}
       onClick={onClick}
       aria-current={current ? 'true' : undefined}
-      title={`第 ${i + 1} 天 · ${formatDate(date)}（可把活動拖到這裡）`}
+      title={`第 ${i + 1} 天 · ${formatDate(date)}${today ? ' · 今天' : ''}（可把活動拖到這裡）`}
     >
       <b>{String(i + 1).padStart(2, '0')}</b>
       <span>
@@ -342,6 +352,31 @@ const travelBefore = (trip: Trip, activities: Activity[]): number[] =>
     return leg ? travelMinutes(leg) : 0
   })
 
+/** "Deleted X · undo" bar: replaces a confirm dialog, shown for a few seconds after a delete. */
+function DeleteUndoBar() {
+  const deleted = useStore((s) => s.deleted)
+  const undoDelete = useStore((s) => s.undoDelete)
+  const dismiss = useStore((s) => s.dismissDeleted)
+  const tripId = useStore((s) => s.currentTripId)
+  useEffect(() => {
+    if (!deleted) return
+    const t = setTimeout(dismiss, 8000)
+    return () => clearTimeout(t)
+  }, [deleted, dismiss])
+  if (!deleted || deleted.tripId !== tripId) return null
+  return (
+    <div className="undo-bar" role="status">
+      <span>🗑 已刪除「{deleted.activity.title}」</span>
+      <button className="btn sm" onClick={undoDelete}>
+        ↶ 復原
+      </button>
+      <button className="btn sm ghost" onClick={dismiss} aria-label="關閉">
+        ✕
+      </button>
+    </div>
+  )
+}
+
 /** "AI updated day N · undo" bar shown for a while after applying an AI co-editing proposal. */
 function DayUndoBar() {
   const undo = useStore((s) => s.dayUndo)
@@ -367,7 +402,7 @@ function DayUndoBar() {
   )
 }
 
-function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; isOver: boolean; onAi: () => void }) {
+function DayColumn({ trip, index, isOver, today, onAi }: { trip: Trip; index: number; isOver: boolean; today: boolean; onAi: () => void }) {
   const { addActivity, removeDay, retimeDay, reorderDay } = useStore()
   const activities = dayActivities(trip, index)
   const conflicts = findConflicts(activities)
@@ -416,7 +451,7 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
   }
 
   return (
-    <section className={`day-col ${isOver ? 'over' : ''}`} style={{ '--day': color, '--i': index } as React.CSSProperties}>
+    <section className={`day-col ${isOver ? 'over' : ''} ${today ? 'today' : ''}`} style={{ '--day': color, '--i': index } as React.CSSProperties}>
       <header className="day-head">
         <div className="title">
           <span className="day-badge" aria-hidden="true">
@@ -425,7 +460,10 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
           </span>
           <span className="day-title">
             <span className="day-name">第 {index + 1} 天</span>
-            <span className="day-date">{formatDate(addDays(trip.startDate, index))}</span>
+            <span className="day-date">
+              {formatDate(addDays(trip.startDate, index))}
+              {today && <em className="today-tag">今天</em>}
+            </span>
           </span>
           <span className="day-tools">
             <button className="btn sm ghost ai-day" onClick={onAi} title="AI 協作：用一句話調整這一天">
@@ -457,7 +495,7 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
 
       <SortableContext items={activities.map((a) => a.id)} strategy={verticalListSortingStrategy}>
         <div className="day-list" ref={setNodeRef}>
-          {activities.length === 0 && <div className="empty-hint">尚無活動，拖曳卡片到這裡或點下方新增</div>}
+          {activities.length === 0 && <div className="empty-hint">尚無活動：拖曳卡片到這裡、點下方新增，或按右上角 ✨ 請 AI 安排</div>}
           {activities.map((a, i) => (
             <div key={a.id}>
               {i > 0 && <Gap trip={trip} prev={activities[i - 1]} cur={a} leg={legs.find((l) => l.to.id === a.id)} routesEnabled={routesEnabled} />}

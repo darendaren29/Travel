@@ -3,9 +3,11 @@ import type { Trip } from '../types'
 import { buildShareUrl, inviteUrl as makeInviteUrl, shortShareUrl } from '../share'
 import { publishShare } from '../sync'
 import { useStore } from '../store'
+import { useEscape } from '../useEscape'
 
 export default function ShareDialog({ trip, onClose }: { trip: Trip; onClose: () => void }) {
   const { user, updateTrip } = useStore()
+  useEscape(onClose)
   const cloud = Boolean(trip.ownerId && user)
   const inviteUrl = makeInviteUrl(trip.id)
   const [copied, setCopied] = useState<'copy' | 'invite' | null>(null)

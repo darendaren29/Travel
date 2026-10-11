@@ -5,6 +5,7 @@ import { DAY_QUICK_ASKS } from '../aiPrompt'
 import { signIn } from '../auth'
 import { CATEGORY_META, type Activity } from '../types'
 import { addDays, dayActivities, dayColor, formatDate, formatMoney, spareActivities } from '../utils'
+import { useEscape } from '../useEscape'
 
 interface Round {
   instruction: string
@@ -61,6 +62,7 @@ export default function DayAiDialog({ dayIndex, onClose }: { dayIndex: number; o
     if (proposal && !confirm('提案還沒有套用，確定關閉？')) return
     onClose()
   }
+  useEscape(close, !busy)
 
   const apply = () => {
     if (!proposal) return

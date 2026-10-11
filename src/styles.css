@@ -926,6 +926,45 @@ textarea {
   color: var(--text);
 }
 
+/* today, while the trip is under way: an ink ring and a dot */
+.day-chip.today {
+  box-shadow: 0 0 0 2px var(--ink);
+  position: relative;
+}
+
+.day-chip.today::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--airmail);
+  border: 2px solid var(--surface);
+}
+
+.day-col.today {
+  box-shadow:
+    0 0 0 2px var(--ink),
+    var(--shadow-hard-soft),
+    var(--shadow);
+}
+
+.today-tag {
+  font-style: normal;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--surface);
+  background: var(--ink);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  letter-spacing: 0.08em;
+  vertical-align: 1px;
+}
+
 /* while a card is being dragged, the chips become drop targets */
 .day-nav.dragging .day-chip {
   border-style: dashed;
@@ -3880,16 +3919,24 @@ textarea {
     padding: 22px 14px 12px;
   }
 
+  /* the plan takes what it needs (up to ~45% of the screen); the chat gets the rest */
   .day-ai-body {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1.1fr);
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
     gap: 10px;
+  }
+
+  .day-ai-plan {
+    max-height: 45dvh;
   }
 
   .quick-asks {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
+    /* fade the right edge so it reads as a scrolling row */
+    mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+    padding-right: 24px;
   }
 
   .quick-ask {

@@ -45,6 +45,15 @@ export const addDays = (isoDate: string, n: number): Date => {
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
+const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/** Index of the trip day that is today (local time), or -1 when the trip isn't under way. */
+export const todayIndex = (trip: Pick<Trip, 'startDate' | 'days'>, now = new Date()): number => {
+  const today = isoDate(now)
+  for (let i = 0; i < trip.days.length; i++) if (isoDate(addDays(trip.startDate, i)) === today) return i
+  return -1
+}
+
 export const formatDate = (d: Date): string =>
   `${d.getMonth() + 1}/${d.getDate()} (${WEEKDAYS[d.getDay()]})`
 

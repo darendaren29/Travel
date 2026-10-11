@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useEscape } from '../useEscape'
 import { useStore, useCurrentTrip } from '../store'
 import { aiErrorDetails, describeAiError, generateItinerary, type ItineraryRequest } from '../ai'
 import { signIn } from '../auth'
@@ -60,6 +61,8 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  useEscape(onClose, !busy)
+
   return (
     <div className="dialog-backdrop" onClick={busy ? undefined : onClose}>
       <div className="dialog ai-dialog" onClick={(e) => e.stopPropagation()}>
@@ -114,8 +117,8 @@ export default function AiDialog({ onClose }: { onClose: () => void }) {
                 <input value={form.currency} maxLength={4} onChange={(e) => set('currency', e.target.value.toUpperCase())} disabled={busy} />
               </div>
               <div className="field">
-                <label>每人預算（0 = 不限）</label>
-                <input type="number" min={0} value={form.budget || ''} placeholder="0" onChange={(e) => set('budget', Number(e.target.value) || 0)} disabled={busy} />
+                <label>每人預算</label>
+                <input type="number" min={0} value={form.budget || ''} placeholder="不限" onChange={(e) => set('budget', Number(e.target.value) || 0)} disabled={busy} />
               </div>
               <div className="field">
                 <label>步調</label>

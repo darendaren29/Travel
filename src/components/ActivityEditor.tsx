@@ -5,6 +5,7 @@ import { duration, formatDuration } from '../utils'
 import { canNavigate, navLinks } from '../nav'
 import { photoUrl, searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
 import Attachments from './Attachments'
+import { useEscape } from '../useEscape'
 
 export default function ActivityEditor() {
   const trip = useCurrentTrip()
@@ -30,6 +31,8 @@ export default function ActivityEditor() {
     setQuery(activity?.location ?? '')
     setResults([])
   }, [activity?.id, activity?.location])
+  // Esc closes the panel (hooks must run before the early return below).
+  useEscape(() => select(null), Boolean(activity))
 
   if (!activity) return null
   const a = activity
@@ -83,9 +86,8 @@ export default function ActivityEditor() {
     setView('map')
   }
 
-  const onDelete = () => {
-    if (confirm(`刪除「${a.title}」？`)) deleteActivity(a.id)
-  }
+  // No confirm: the board offers "復原" for a few seconds instead.
+  const onDelete = () => deleteActivity(a.id)
 
   return (
     <aside className="panel">
@@ -254,7 +256,7 @@ export default function ActivityEditor() {
         <button className="btn" onClick={() => duplicateActivity(a.id)}>
           ⧉ 複製
         </button>
-        <button className="btn danger" style={{ marginLeft: 'auto' }} onClick={onDelete}>
+        <button className="btn danger" style={{ marginLeft: 'auto' }} onClick={onDelete} title="刪除後幾秒內可復原">
           🗑 刪除
         </button>
       </div>
