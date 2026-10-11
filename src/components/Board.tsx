@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import DayAiDialog from './DayAiDialog'
 import {
@@ -38,6 +38,7 @@ import {
 import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
 import { dayLegs, formatDistance, hasGeo, legBetween, optimizeOrder, travelMinutes, tripMode, type DayLeg } from '../routes'
 import { photoUrl, useGooglePlaces } from '../places'
+import { FAR_HOP_KM, dayBrief, formatKm } from '../brief'
 
 const STRIP_START = 6 * 60 // 06:00
 const STRIP_END = 24 * 60 // 24:00
@@ -372,6 +373,7 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
             </button>
           </span>
         </div>
+        <DayBriefLine activities={activities} />
         <div className="sub">
           <span>{formatDate(addDays(trip.startDate, index))}</span>
           <span>
@@ -399,6 +401,52 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
         </button>
       </footer>
     </section>
+  )
+}
+
+/** Under the day title: what the day is about, and the major places it moves between. */
+function DayBriefLine({ activities }: { activities: Activity[] }) {
+  const brief = useMemo(() => dayBrief(activities), [activities])
+  if (!activities.length) return null
+  const single = brief.route.length === 1
+  return (
+    <div className="day-brief">
+      <p className="brief-sum" title={activities.map((a) => a.title).join('、')}>
+        <span className="k" aria-hidden="true">
+          ✦
+        </span>
+        <span className="t">{brief.summary}</span>
+        <span className="tally">
+          {brief.tally.map(([c, n]) => (
+            <span key={c} style={{ '--c': CATEGORY_META[c].color } as React.CSSProperties} title={CATEGORY_META[c].label}>
+              {CATEGORY_META[c].icon}
+              {n}
+            </span>
+          ))}
+        </span>
+      </p>
+      {brief.route.length > 0 && (
+        <p className="brief-route" title="當日主要移動（相距 15 km 內視為同一地區）">
+          <span className="k" aria-hidden="true">
+            📍
+          </span>
+          {brief.route.map((s, i) => (
+            <span key={i} className="leg">
+              {i > 0 && (
+                <span className={`arrow ${s.hopKm != null && s.hopKm >= FAR_HOP_KM ? 'far' : ''}`}>
+                  {s.hopKm != null && s.hopKm >= FAR_HOP_KM ? <small>{formatKm(s.hopKm)}</small> : null}→
+                </span>
+              )}
+              <span className="stop">
+                {s.label}
+                {s.count > 1 && <small>×{s.count}</small>}
+              </span>
+            </span>
+          ))}
+          {single && brief.route[0].count > 1 && <span className="stay">全天同一地區</span>}
+        </p>
+      )}
+    </div>
   )
 }
 
