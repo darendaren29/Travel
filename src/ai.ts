@@ -1,8 +1,8 @@
 import { FunctionsError, httpsCallable } from 'firebase/functions'
 import { functions } from './firebase'
-import { CLAUDE_DAILY_LIMIT, CLAUDE_DAY_DAILY_LIMIT, type AiDay, type AiTrip, type DayRequest, type ItineraryRequest } from './aiPrompt'
+import { CLAUDE_DAILY_LIMIT, CLAUDE_DAY_DAILY_LIMIT, type AiDay, type AiTrip, type DayActivityIn, type DayRequest, type ItineraryRequest } from './aiPrompt'
 import { CATEGORIES, type Activity, type Category, type Trip } from './types'
-import { longId, toMinutes, toTime, uid } from './utils'
+import { longId, spareActivities, toMinutes, toTime, uid } from './utils'
 
 export type { ItineraryRequest, AiTrip } from './aiPrompt'
 
@@ -106,6 +106,15 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
   })
   while (days.length < req.days) days.push({ id: uid(), activityIds: [] })
 
+  // 備用景點: kept without a time slot.
+  const spare: string[] = []
+  for (const a of (raw.spares ?? []).slice(0, 10)) {
+    if (!a?.title) continue
+    const id = uid()
+    activities[id] = { ...normalizeActivity(a, id, 9 * 60), start: '', end: '' }
+    spare.push(id)
+  }
+
   return {
     id: longId(),
     name: raw.name?.trim() || `${req.destination} ${req.days} 日遊`,
@@ -115,6 +124,7 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
     budget: req.budget,
     days,
     activities,
+    ...(spare.length ? { spare } : {}),
     updatedAt: Date.now(),
   }
 }
@@ -134,6 +144,18 @@ export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], in
     const a = ids?.length ? trip.activities[ids[last ? ids.length - 1 : 0]] : undefined
     return a ? `${a.start}–${a.end} ${a.title}${a.location ? `（${a.location}）` : ''}` : ''
   }
+  const toIn = (a: Activity): DayActivityIn => ({
+    id: a.id,
+    title: a.title,
+    category: a.category,
+    start: a.start,
+    end: a.end,
+    location: a.location ?? '',
+    ...(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : {}),
+    cost: a.cost,
+    notes: a.notes ?? '',
+  })
+  const spares = spareActivities(trip)
   return {
     destination: trip.destination,
     currency: trip.currency,
@@ -142,34 +164,26 @@ export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], in
     totalDays: trip.days.length,
     before: edge(trip.days[dayIndex - 1]?.activityIds, true),
     after: edge(trip.days[dayIndex + 1]?.activityIds, false),
-    activities: current.map((a) => ({
-      id: a.id,
-      title: a.title,
-      category: a.category,
-      start: a.start,
-      end: a.end,
-      location: a.location ?? '',
-      ...(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : {}),
-      cost: a.cost,
-      notes: a.notes ?? '',
-    })),
+    activities: current.map(toIn),
+    ...(spares.length ? { spares: spares.slice(0, 20).map(toIn) } : {}),
     instruction,
     history,
   }
 }
 
 /** Ask the AI to revise a day. Returns the explanation and the proposed activities (not yet applied). */
-export async function reviseDay(req: DayRequest, current: Activity[]): Promise<{ summary: string; activities: Activity[] }> {
+export async function reviseDay(req: DayRequest, current: Activity[], spares: Activity[] = []): Promise<{ summary: string; activities: Activity[] }> {
   const raw = (await claudeDayCall({ ...req, kind: 'day' })).data.day
-  return { summary: (raw.summary ?? '').trim(), activities: toDayProposal(raw, current) }
+  return { summary: (raw.summary ?? '').trim(), activities: toDayProposal(raw, current, spares) }
 }
 
 /**
- * Turn the model's day into activities. Ids of existing activities are reused (each at most once) so
- * photos and attached tickets stay linked; anything else becomes a new activity.
+ * Turn the model's day into activities. Ids of existing activities (the day's, or spares it slotted
+ * in) are reused (each at most once) so photos and attached tickets stay linked; anything else
+ * becomes a new activity.
  */
-export function toDayProposal(raw: AiDay, current: Activity[]): Activity[] {
-  const byId = new Map(current.map((a) => [a.id, a]))
+export function toDayProposal(raw: AiDay, current: Activity[], spares: Activity[] = []): Activity[] {
+  const byId = new Map([...spares, ...current].map((a) => [a.id, a]))
   const used = new Set<string>()
   let cursor = 9 * 60
   const out: Activity[] = []

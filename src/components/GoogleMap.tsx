@@ -5,7 +5,7 @@ import { CATEGORY_META, type Activity, type Trip } from '../types'
 import { formatMoney } from '../utils'
 import { navLinks } from '../nav'
 import { dayLegs, decodePolyline } from '../routes'
-import type { DayGroup } from './MapView'
+import { SPARE, type DayGroup } from './MapView'
 
 interface Props {
   trip: Trip
@@ -48,8 +48,9 @@ export default function GoogleMapPane({ trip, days, hidden, selectedId, onSelect
         <FitBounds points={points} tripId={trip.id} />
         <PanToSelected activity={selected} />
         {visible.flatMap((d) =>
-          // One segment per consecutive pair: the real route when we have it, a dashed straight line otherwise.
-          dayLegs(trip, d.activities).map((l) => (
+          // One segment per consecutive pair: the real route when we have it, a dashed straight line
+          // otherwise. Spares are not a route.
+          (d.index === SPARE ? [] : dayLegs(trip, d.activities)).map((l) => (
             <DayLine
               key={`${d.index}-${l.key}`}
               color={d.color}
@@ -75,7 +76,8 @@ export default function GoogleMapPane({ trip, days, hidden, selectedId, onSelect
               <b>
                 {CATEGORY_META[selected.category].icon} {selected.title}
               </b>
-              <br />第 {selectedDay.index + 1} 天 · {selected.start} – {selected.end}
+              <br />
+              {selectedDay.index === SPARE ? '備用景點 · 未排時間' : `第 ${selectedDay.index + 1} 天 · ${selected.start} – ${selected.end}`}
               {selected.location && <><br />📍 {selected.location}</>}
               {selected.cost > 0 && <><br />💰 {formatMoney(selected.cost, trip.currency)}</>}
               <div className="popup-nav">

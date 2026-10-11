@@ -26,6 +26,8 @@ export interface AiTrip {
   destination: string
   currency: string
   days: { theme: string; activities: AiActivity[] }[]
+  /** 備用景點: alternatives kept without a time slot (rain plans, extras if time allows). */
+  spares?: AiActivity[]
 }
 export interface AiActivity {
   title: string
@@ -62,6 +64,7 @@ export const SYSTEM_PROMPT = `你是專業的旅遊行程規劃師。根據使�
 - 每個活動都要給出真實存在的地點，以及正確的 WGS84 經緯度（小數，不可為 0）。
 - cost 為每人預估花費，使用指定幣別、整數；免費填 0。盡量讓總花費落在預算內。
 - notes 給一句實用提示（是否需預約、交通方式、營業時間注意）。
+- 另外在 spares 給 3–6 個「備用景點」：雨天替代方案、順路可加的點、時間多出來時值得去的地方；格式同活動（start/end 隨意填，會被忽略），notes 說明適合在哪種情況替換哪一天。
 - 只輸出符合 schema 的 JSON。`
 
 export const buildPrompt = (r: ItineraryRequest) =>
@@ -109,6 +112,8 @@ export interface DayRequest {
   before: string
   after: string
   activities: DayActivityIn[]
+  /** 備用景點 the traveller already picked (no time slot); the model should prefer these when adding stops. */
+  spares?: DayActivityIn[]
   instruction: string
   /** Earlier instructions in this co-editing session, oldest first. */
   history: string[]
@@ -134,6 +139,7 @@ export const DAY_SYSTEM_PROMPT = `你是旅遊行程協作助手，正在和使�
 規則：
 - 回傳修改後這一天的「完整」活動清單（不是只有變動的部分），依時間排序。
 - 沒被要求修改的活動保持原樣並沿用原本的 id；修改過的活動也沿用原 id；新增的活動 id 填空字串；被刪除的活動不要出現在清單中。
+- 若有列出「備用景點」，要加入新地點時優先從中挑選（沿用其 id 並給它時間）；不適合時才另外推薦。
 - 航班、飯店入住／退房、已預約的票券等固定安排，除非使用者明確要求，不要更動時間或刪除。
 - 時間用 24 小時制 HH:MM，活動不可重疊，景點之間預留合理交通時間，並考慮營業時間。
 - 每個活動都要是真實存在的地點，附正確的 WGS84 經緯度（小數，不可為 0）。
@@ -155,6 +161,7 @@ export const buildDayPrompt = (r: DayRequest) => {
     r.after ? `隔天第一個安排：${r.after}` : '',
     '目前這一天的行程（每行一個活動，JSON）：',
     lines.length ? lines.join('\n') : '（尚無活動）',
+    r.spares?.length ? `備用景點（尚未排入任何一天，可挑選加入）：\n${r.spares.map((a) => JSON.stringify(a)).join('\n')}` : '',
     r.history.length ? `先前已提出的要求：\n${r.history.map((h) => `- ${h}`).join('\n')}` : '',
     `這次的要求：${r.instruction}`,
   ]

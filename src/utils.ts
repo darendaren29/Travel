@@ -77,8 +77,14 @@ export const findConflicts = (activities: Activity[]): Set<string> => {
   return conflicts
 }
 
-export const tripTotalCost = (trip: Trip): number =>
-  Object.values(trip.activities).reduce((sum, a) => sum + (a.cost || 0), 0)
+/** 備用景點 (no time slot), in their kept order. */
+export const spareActivities = (trip: Trip): Activity[] =>
+  (trip.spare ?? []).map((id) => trip.activities[id]).filter((a): a is Activity => Boolean(a))
+
+/** Every activity that is actually on a day, in day order (spares are not plans, so not counted). */
+export const plannedActivities = (trip: Trip): Activity[] => trip.days.flatMap((_, i) => dayActivities(trip, i))
+
+export const tripTotalCost = (trip: Trip): number => plannedActivities(trip).reduce((sum, a) => sum + (a.cost || 0), 0)
 
 export const dayCost = (trip: Trip, dayIndex: number): number =>
   dayActivities(trip, dayIndex).reduce((sum, a) => sum + (a.cost || 0), 0)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
-import { addDays, formatDate, formatMoney, tripTotalCost } from '../utils'
+import { addDays, formatDate, formatMoney, plannedActivities, tripTotalCost } from '../utils'
 import { TRAVEL_MODES, type TravelMode } from '../types'
 import { useGooglePlaces } from '../places'
 import { tripMode } from '../routes'
@@ -24,7 +24,7 @@ export default function TripBar() {
   const [open, setOpen] = useState(false)
   const routesEnabled = useGooglePlaces(trip.destination)
   const total = tripTotalCost(trip)
-  const count = Object.keys(trip.activities).length
+  const count = plannedActivities(trip).length
   const endDate = addDays(trip.startDate, trip.days.length - 1)
 
   return (

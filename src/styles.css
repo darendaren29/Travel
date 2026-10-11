@@ -1368,6 +1368,75 @@ textarea {
   box-shadow: var(--shadow-hard-soft);
 }
 
+/* =========================================================
+   備用景點 — the pocket at the end of the board: a manila envelope of loose ideas
+   ========================================================= */
+.spare-col {
+  --day: #8a8276;
+  border-style: dashed;
+  background:
+    repeating-linear-gradient(-45deg, transparent 0 10px, color-mix(in srgb, var(--day) 5%, transparent) 10px 11px),
+    color-mix(in srgb, var(--day) 5%, var(--surface));
+}
+
+.spare-col .day-head {
+  background: linear-gradient(90deg, var(--day) 0 6px, transparent 6px), color-mix(in srgb, var(--day) 8%, var(--surface));
+}
+
+.spare-col .day-badge {
+  font-size: 18px;
+  transform: rotate(6deg);
+}
+
+.spare-col:hover .day-badge {
+  transform: rotate(2deg) scale(1.04);
+}
+
+.spare-hint {
+  margin: 8px 0 2px;
+  padding-left: 64px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.spare-col.over {
+  outline-color: var(--day);
+}
+
+/* chip at the end of the day navigator */
+.day-chip.spare-chip {
+  --day: #8a8276;
+  border-style: dashed;
+}
+
+.day-chip.spare-chip b {
+  font-size: 13px;
+}
+
+/* a card without a time slot */
+.card.spare .time .unscheduled {
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.spare-note {
+  margin: 2px 0 10px;
+  padding: 9px 11px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* travel between stops — flight-path dotted line */
 .gap {
   display: flex;
@@ -3384,6 +3453,10 @@ textarea {
     padding-left: 54px;
     margin-top: 3px;
     font-size: 12px;
+  }
+
+  .spare-hint {
+    padding-left: 54px;
   }
 }
 

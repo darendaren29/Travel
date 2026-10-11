@@ -51,6 +51,11 @@ export interface Trip {
   budget: number
   days: Day[]
   activities: Record<string, Activity>
+  /**
+   * 備用景點: ids of activities kept aside without a time slot (their start/end are ''). They sit in
+   * `activities` like any other but in no day, and can be dragged into one when the plan changes.
+   */
+  spare?: string[]
   /** Cloud fields — present once the trip is stored in Firestore. */
   ownerId?: string
   members?: string[]

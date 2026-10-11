@@ -86,9 +86,14 @@ interface State {
   addActivity: (dayIndex: number, partial?: Partial<Activity>) => string
   updateActivity: (id: string, patch: Partial<Activity>) => void
   deleteActivity: (id: string) => void
-  /** Move an activity to a day at a given position, re-timing it to follow its new predecessor. */
+  /** Move an activity (from a day or the spare list) to a day at a given position, re-timing it to follow its new predecessor. */
   moveActivity: (id: string, toDayIndex: number, toIndex: number) => void
   duplicateActivity: (id: string) => void
+  // 備用景點 — kept without a time slot
+  /** New spare activity (selected for editing). */
+  addSpare: (partial?: Partial<Activity>) => string
+  /** Take an activity off its day (its times are cleared) and keep it as a spare at `index` (end by default). */
+  moveToSpare: (id: string, index?: number) => void
   /** Replace day `dayIndex` with `activities` (AI co-editing); keeps an undo snapshot. */
   replaceDayActivities: (dayIndex: number, activities: Activity[], label: string) => void
   /** Last AI day change, offered as "undo" for a short while (not persisted). */
@@ -138,6 +143,12 @@ const sortDay = (trip: Trip, dayIndex: number) => {
   day.activityIds.sort((a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start))
 }
 
+/** Spare ids of a trip, dropping any whose activity is gone. */
+const spareIds = (t: Trip): string[] => (t.spare = (t.spare ?? []).filter((id) => t.activities[id]))
+
+/** Whether an activity is kept as a spare (no time slot). */
+export const isSpare = (t: Trip, id: string): boolean => Boolean(t.spare?.includes(id))
+
 /** Unlink ticket files whose activity no longer exists. */
 const unlinkOrphanDocs = (t: Trip) =>
   Object.values(t.docs ?? {}).forEach((doc) => doc.activityId && !t.activities[doc.activityId] && delete doc.activityId)
@@ -154,6 +165,8 @@ const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
   }
   for (const a of activities) t.activities[a.id] = { ...a }
   day.activityIds = activities.map((a) => a.id)
+  // A spare the AI slotted in is now planned.
+  t.spare = spareIds(t).filter((id) => !keep.has(id))
   sortDay(t, dayIndex)
 }
 
@@ -409,6 +422,11 @@ export const useStore = create<State>()(
             // Ignore half-typed / cleared time inputs; "" would otherwise be stored and shown.
             if (patch.start !== undefined && !TIME_RE.test(patch.start)) delete patch.start
             if (patch.end !== undefined && !TIME_RE.test(patch.end)) delete patch.end
+            // Spares have no time slot; they get one when moved onto a day.
+            if (isSpare(t, id)) {
+              delete patch.start
+              delete patch.end
+            }
             Object.assign(a, patch)
             // keep end >= start
             if (toMinutes(a.end) < toMinutes(a.start)) a.end = a.start
@@ -419,6 +437,7 @@ export const useStore = create<State>()(
           mutate((t) => {
             delete t.activities[id]
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
+            spareIds(t)
             // Keep attached files, just unlink them.
             Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
           })
@@ -451,11 +470,13 @@ export const useStore = create<State>()(
             const target = t.days[toDayIndex]
             if (!a || !target) return
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
+            t.spare = spareIds(t).filter((x) => x !== id)
             const idx = Math.max(0, Math.min(toIndex, target.activityIds.length))
             target.activityIds.splice(idx, 0, id)
 
-            // Re-time: follow the predecessor (or start the day at 09:00), keep duration.
-            const dur = duration(a)
+            // Re-time: follow the predecessor (or start the day at 09:00), keep duration (a spare
+            // has none yet: give it an hour and a half).
+            const dur = duration(a) || 90
             const prevId = target.activityIds[idx - 1]
             const nextId = target.activityIds[idx + 1]
             let start = prevId ? toMinutes(t.activities[prevId].end) : toMinutes('09:00')
@@ -472,11 +493,35 @@ export const useStore = create<State>()(
           if (!trip) return
           const di = findDayIndex(trip, id)
           const src = trip.activities[id]
-          if (di < 0 || !src) return
+          if (!src) return
           const { id: _omit, ...rest } = src
           void _omit
+          if (di < 0) {
+            if (isSpare(trip, id)) get().addSpare(rest)
+            return
+          }
           get().addActivity(di, { ...rest, start: src.end, end: toTime(toMinutes(src.end) + duration(src)) })
         },
+        addSpare: (partial = {}) => {
+          const id = uid()
+          mutate((t) => {
+            t.activities[id] = { id, title: '備用景點', category: 'sight', cost: 0, ...partial, start: '', end: '' }
+            spareIds(t).push(id)
+          })
+          set({ selectedActivityId: id })
+          return id
+        },
+        moveToSpare: (id, index) =>
+          mutate((t) => {
+            const a = t.activities[id]
+            if (!a) return
+            t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
+            const spare = spareIds(t).filter((x) => x !== id)
+            spare.splice(index == null || index < 0 || index > spare.length ? spare.length : index, 0, id)
+            t.spare = spare
+            a.start = ''
+            a.end = ''
+          }),
       }
     },
     {

@@ -8,8 +8,18 @@ import Attachments from './Attachments'
 
 export default function ActivityEditor() {
   const trip = useCurrentTrip()
-  const { selectedActivityId, select, updateActivity, deleteActivity, duplicateActivity, moveActivity, setView, pickingLocationFor, setPickingLocation } =
-    useStore()
+  const {
+    selectedActivityId,
+    select,
+    updateActivity,
+    deleteActivity,
+    duplicateActivity,
+    moveActivity,
+    moveToSpare,
+    setView,
+    pickingLocationFor,
+    setPickingLocation,
+  } = useStore()
   const activity = selectedActivityId ? trip.activities[selectedActivityId] : undefined
 
   const [query, setQuery] = useState('')
@@ -24,6 +34,7 @@ export default function ActivityEditor() {
   if (!activity) return null
   const a = activity
   const dayIndex = trip.days.findIndex((d) => d.activityIds.includes(a.id))
+  const spare = dayIndex < 0 // kept as a 備用景點, no time slot
   const patch = (p: Partial<Activity>) => updateActivity(a.id, p)
 
   const googleSearch = useGooglePlaces(trip.destination)
@@ -116,30 +127,41 @@ export default function ActivityEditor() {
           </div>
         </div>
 
-        <div className="row">
-          <div className="field">
-            <label>開始</label>
-            <input type="time" value={a.start} onChange={(e) => patch({ start: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>結束</label>
-            <input type="time" value={a.end} onChange={(e) => patch({ end: e.target.value })} />
-          </div>
-        </div>
-        <div className="coords">時長：{formatDuration(duration(a))}</div>
+        {spare ? (
+          <div className="spare-note">📌 備用景點不排時間。選一天（或把卡片拖到那天）就會排進行程。</div>
+        ) : (
+          <>
+            <div className="row">
+              <div className="field">
+                <label>開始</label>
+                <input type="time" value={a.start} onChange={(e) => patch({ start: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>結束</label>
+                <input type="time" value={a.end} onChange={(e) => patch({ end: e.target.value })} />
+              </div>
+            </div>
+            <div className="coords">時長：{formatDuration(duration(a))}</div>
+          </>
+        )}
 
         <div className="row">
           <div className="field">
             <label>所屬天數</label>
             <select
               value={dayIndex}
-              onChange={(e) => moveActivity(a.id, Number(e.target.value), trip.days[Number(e.target.value)].activityIds.length)}
+              onChange={(e) => {
+                const i = Number(e.target.value)
+                if (i < 0) moveToSpare(a.id)
+                else moveActivity(a.id, i, trip.days[i].activityIds.length)
+              }}
             >
               {trip.days.map((_, i) => (
                 <option key={i} value={i}>
                   第 {i + 1} 天
                 </option>
               ))}
+              <option value={-1}>📌 備用景點（不排時間）</option>
             </select>
           </div>
           <div className="field">

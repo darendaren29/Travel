@@ -4,7 +4,7 @@ import { aiErrorDetails, dayRequest, describeAiError, diffDay, reviseDay } from 
 import { DAY_QUICK_ASKS } from '../aiPrompt'
 import { signIn } from '../auth'
 import { CATEGORY_META, type Activity } from '../types'
-import { addDays, dayActivities, dayColor, formatDate, formatMoney } from '../utils'
+import { addDays, dayActivities, dayColor, formatDate, formatMoney, spareActivities } from '../utils'
 
 interface Round {
   instruction: string
@@ -46,7 +46,7 @@ export default function DayAiDialog({ dayIndex, onClose }: { dayIndex: number; o
     try {
       // Refine the pending proposal if there is one, otherwise the live day.
       const base = proposal ?? current
-      const res = await reviseDay(dayRequest(trip, dayIndex, base, instruction, history), base)
+      const res = await reviseDay(dayRequest(trip, dayIndex, base, instruction, history), base, spareActivities(trip))
       setProposal(res.activities)
       setRounds((rs) => rs.map((r, i) => (i === rs.length - 1 ? { ...r, summary: res.summary || '已更新提案。' } : r)))
     } catch (e) {

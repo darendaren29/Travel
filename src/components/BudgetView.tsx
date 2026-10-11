@@ -14,7 +14,7 @@ import {
 } from 'recharts'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Category } from '../types'
-import { addDays, dayActivities, formatDate, formatMoney, tripTotalCost } from '../utils'
+import { addDays, dayActivities, formatDate, formatMoney, plannedActivities, tripTotalCost } from '../utils'
 
 export default function BudgetView() {
   const trip = useCurrentTrip()
@@ -24,7 +24,7 @@ export default function BudgetView() {
 
   const byCategory = useMemo(() => {
     const sums: Record<Category, number> = { sight: 0, food: 0, transport: 0, lodging: 0, shopping: 0, other: 0 }
-    Object.values(trip.activities).forEach((a) => (sums[a.category] += a.cost || 0))
+    plannedActivities(trip).forEach((a) => (sums[a.category] += a.cost || 0))
     return CATEGORIES.map((c) => ({ key: c, name: CATEGORY_META[c].label, value: sums[c], color: CATEGORY_META[c].color })).filter(
       (d) => d.value > 0,
     )

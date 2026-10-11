@@ -33,6 +33,7 @@ import {
   formatDate,
   formatDuration,
   formatMoney,
+  spareActivities,
   toMinutes,
 } from '../utils'
 import { canNavigate, dayRouteUrl, navLinks, openUrl } from '../nav'
@@ -45,6 +46,10 @@ const STRIP_END = 24 * 60 // 24:00
 const dayId = (i: number) => `day-${i}`
 const chipId = (i: number) => `chip-${i}`
 const isChip = (id: unknown) => String(id).startsWith('chip-')
+/** The 備用景點 column and its chip; `SPARE` doubles as their "day index". */
+const SPARE = -1
+const SPARE_ID = 'day-spare'
+const SPARE_CHIP = 'chip-spare'
 
 /**
  * Touch: a long press anywhere on a card starts a drag (so a normal swipe still scrolls),
@@ -73,10 +78,11 @@ const scrollToDay = (board: HTMLElement | null, i: number) => {
 
 export default function Board() {
   const trip = useCurrentTrip()
-  const { moveActivity, addDay } = useStore()
+  const { moveActivity, moveToSpare, addDay } = useStore()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overDay, setOverDay] = useState<number | null>(null)
   const [aiDay, setAiDay] = useState<number | null>(null)
+  const spare = trip.spare ?? []
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -86,12 +92,15 @@ export default function Board() {
   )
 
   const locate = (id: string): { day: number; index: number } | null => {
+    if (id === SPARE_ID || id === SPARE_CHIP) return { day: SPARE, index: -1 }
     if (id.startsWith('day-')) return { day: Number(id.slice(4)), index: -1 }
     if (isChip(id)) return { day: Number(id.slice(5)), index: -1 }
     for (let d = 0; d < trip.days.length; d++) {
       const idx = trip.days[d].activityIds.indexOf(id)
       if (idx >= 0) return { day: d, index: idx }
     }
+    const si = spare.indexOf(id)
+    if (si >= 0) return { day: SPARE, index: si }
     return null
   }
 
@@ -110,6 +119,14 @@ export default function Board() {
     const from = locate(id)
     const to = locate(String(e.over.id))
     if (!from || !to) return
+
+    if (to.day === SPARE) {
+      // Into the spare list: loses its time slot; within it, just reorders.
+      if (from.day === SPARE && from.index === to.index) return
+      moveToSpare(id, to.index < 0 ? undefined : to.index)
+      if (e.over.id === SPARE_CHIP) setTimeout(() => scrollToDay(boardRef.current, trip.days.length), 50)
+      return
+    }
 
     let index = to.index
     if (index < 0) index = trip.days[to.day].activityIds.length // dropped on empty column area
@@ -146,6 +163,7 @@ export default function Board() {
           {trip.days.map((_, i) => (
             <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} onAi={() => setAiDay(i)} />
           ))}
+          <SpareColumn trip={trip} isOver={overDay === SPARE} />
           <button className="add-day" onClick={addDay}>
             ＋ 新增一天
           </button>
@@ -201,7 +219,7 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
     )
     cols.forEach((c) => io.observe(c))
     return () => io.disconnect()
-  }, [boardRef, trip.days.length])
+  }, [boardRef, trip.days.length, (trip.spare?.length ?? 0) > 0])
 
   // Keep the first visible day's chip in view when the chip row itself overflows.
   const first = visible.size ? Math.min(...visible) : 0
@@ -214,10 +232,10 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
 
   const goTo = (i: number) => scrollToDay(boardRef.current, i)
   const last = visible.size ? Math.max(...visible) : 0
-  const n = trip.days.length
+  // Columns: the days plus the 備用景點 column at the end.
+  const n = trip.days.length + 1
   // Arrows page by however many days fit on screen (one on phones).
   const step = Math.max(1, visible.size)
-  if (n <= 1) return null
 
   return (
     <nav className={`day-nav ${dragging ? 'dragging' : ''}`} aria-label="切換天數">
@@ -228,9 +246,10 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
         {trip.days.map((d, i) => (
           <DayChip key={d.id} trip={trip} index={i} on={visible.has(i)} current={i === first} onClick={() => goTo(i)} />
         ))}
+        <SpareChip count={trip.spare?.length ?? 0} on={visible.has(n - 1)} current={first === n - 1} onClick={() => goTo(n - 1)} />
       </div>
       <span className="drop-hint" aria-hidden={!dragging}>
-        放到日期 → 移到該天
+        放到日期 → 移到該天 · 放到備用 → 取消時間
       </span>
       <button className="btn sm ghost" onClick={() => goTo(Math.min(n - 1, first + step))} disabled={last >= n - 1} aria-label="後一天">
         ▶
@@ -256,6 +275,62 @@ function DayChip({ trip, index: i, on, current, onClick }: { trip: Trip; index: 
         {date.getMonth() + 1}/{date.getDate()}
       </span>
     </button>
+  )
+}
+
+/** Chip for the 備用景點 column: jump to it, or drop a card on it to take the card off the schedule. */
+function SpareChip({ count, on, current, onClick }: { count: number; on: boolean; current: boolean; onClick: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: SPARE_CHIP })
+  return (
+    <button
+      ref={setNodeRef}
+      className={`day-chip spare-chip ${on ? 'on' : ''} ${isOver ? 'drop' : ''}`}
+      onClick={onClick}
+      aria-current={current ? 'true' : undefined}
+      title="備用景點：不排時間的候選地點（把活動拖到這裡會取消它的時間）"
+    >
+      <b>📌</b>
+      <span>備用{count > 0 ? ` ${count}` : ''}</span>
+    </button>
+  )
+}
+
+/**
+ * 備用景點 column: candidates without a time slot. Drag one onto a day (or its chip) to schedule it,
+ * drag a day's card here to take it off the schedule.
+ */
+function SpareColumn({ trip, isOver }: { trip: Trip; isOver: boolean }) {
+  const { addSpare } = useStore()
+  const spares = spareActivities(trip)
+  const { setNodeRef } = useDroppable({ id: SPARE_ID })
+  return (
+    <section className={`day-col spare-col ${isOver ? 'over' : ''}`} style={{ '--i': trip.days.length } as React.CSSProperties}>
+      <header className="day-head">
+        <div className="title">
+          <span className="day-badge" aria-hidden="true">
+            <small>SPARE</small>📌
+          </span>
+          <span className="day-title">
+            <span className="day-name">備用景點</span>
+            <span className="day-date">不排時間 · {spares.length} 個</span>
+          </span>
+        </div>
+        <p className="spare-hint">拖到某一天就會排進去；行程有變時從這裡挑。AI 協作加點時也會優先選這些。</p>
+      </header>
+      <SortableContext items={spares.map((a) => a.id)} strategy={verticalListSortingStrategy}>
+        <div className="day-list" ref={setNodeRef}>
+          {spares.length === 0 && <div className="empty-hint">還沒有備用景點。把某天的活動拖到這裡，或點下方新增。</div>}
+          {spares.map((a) => (
+            <SortableCard key={a.id} activity={a} conflict={false} />
+          ))}
+        </div>
+      </SortableContext>
+      <footer className="day-foot">
+        <button className="btn sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => addSpare()}>
+          ＋ 新增備用景點
+        </button>
+      </footer>
+    </section>
   )
 }
 
@@ -557,15 +632,22 @@ function CardView({
     .join(' ')
   const nav = canNavigate(a) ? navLinks(trip, a)[0] : null
   const attachments = Object.values(trip.docs ?? {}).filter((d) => d.activityId === a.id).length
+  const spare = !a.start && !a.end
   return (
-    <div className={cls} style={{ '--cat': meta.color } as React.CSSProperties} onClick={() => select(a.id)}>
-      <div className="bar" data-drag-handle title="拖曳以調整順序或移到其他天">
+    <div className={`${cls}${spare ? ' spare' : ''}`} style={{ '--cat': meta.color } as React.CSSProperties} onClick={() => select(a.id)}>
+      <div className="bar" data-drag-handle title={spare ? '拖到某一天排進行程' : '拖曳以調整順序、移到其他天，或放到備用景點'}>
         <span className="grip" aria-hidden="true" />
       </div>
       <div className="body">
         <div className="time">
-          {a.start} – {a.end}
-          <span className="dur">{formatDuration(duration(a))}</span>
+          {spare ? (
+            <span className="unscheduled">未排時間</span>
+          ) : (
+            <>
+              {a.start} – {a.end}
+              <span className="dur">{formatDuration(duration(a))}</span>
+            </>
+          )}
         </div>
         <div className="title" title={a.title}>
           <span className="cat-ic">{meta.icon}</span>

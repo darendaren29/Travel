@@ -42,10 +42,27 @@ let client: Anthropic | undefined
 const claude = () => (client ??= new Anthropic({ apiKey: anthropicKey.value() }))
 
 const str = (description: string) => ({ type: 'string', description })
+const ACTIVITY_PROPS = {
+  title: str(ACTIVITY_FIELDS.title),
+  category: { type: 'string', enum: AI_CATEGORIES },
+  start: str(ACTIVITY_FIELDS.start),
+  end: str(ACTIVITY_FIELDS.end),
+  location: str(ACTIVITY_FIELDS.location),
+  lat: { type: 'number', description: ACTIVITY_FIELDS.lat },
+  lng: { type: 'number', description: ACTIVITY_FIELDS.lng },
+  cost: { type: 'integer', description: ACTIVITY_FIELDS.cost },
+  notes: str(ACTIVITY_FIELDS.notes),
+}
+const ACTIVITY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['title', 'category', 'start', 'end', 'location', 'lat', 'lng', 'cost', 'notes'],
+  properties: ACTIVITY_PROPS,
+}
 const TRIP_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'destination', 'currency', 'days'],
+  required: ['name', 'destination', 'currency', 'days', 'spares'],
   properties: {
     name: str('旅程名稱，例如「東京美食三日遊」'),
     destination: { type: 'string' },
@@ -58,41 +75,12 @@ const TRIP_SCHEMA = {
         required: ['theme', 'activities'],
         properties: {
           theme: str('當日主題'),
-          activities: {
-            type: 'array',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['title', 'category', 'start', 'end', 'location', 'lat', 'lng', 'cost', 'notes'],
-              properties: {
-                title: str(ACTIVITY_FIELDS.title),
-                category: { type: 'string', enum: AI_CATEGORIES },
-                start: str(ACTIVITY_FIELDS.start),
-                end: str(ACTIVITY_FIELDS.end),
-                location: str(ACTIVITY_FIELDS.location),
-                lat: { type: 'number', description: ACTIVITY_FIELDS.lat },
-                lng: { type: 'number', description: ACTIVITY_FIELDS.lng },
-                cost: { type: 'integer', description: ACTIVITY_FIELDS.cost },
-                notes: str(ACTIVITY_FIELDS.notes),
-              },
-            },
-          },
+          activities: { type: 'array', items: ACTIVITY_SCHEMA },
         },
       },
     },
+    spares: { type: 'array', description: '備用景點：3–6 個未排入行程的替代地點（雨天備案、順路可加、時間多出來時可去）', items: ACTIVITY_SCHEMA },
   },
-}
-
-const ACTIVITY_PROPS = {
-  title: str(ACTIVITY_FIELDS.title),
-  category: { type: 'string', enum: AI_CATEGORIES },
-  start: str(ACTIVITY_FIELDS.start),
-  end: str(ACTIVITY_FIELDS.end),
-  location: str(ACTIVITY_FIELDS.location),
-  lat: { type: 'number', description: ACTIVITY_FIELDS.lat },
-  lng: { type: 'number', description: ACTIVITY_FIELDS.lng },
-  cost: { type: 'integer', description: ACTIVITY_FIELDS.cost },
-  notes: str(ACTIVITY_FIELDS.notes),
 }
 const DAY_SCHEMA = {
   type: 'object',
@@ -138,6 +126,23 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : u
 function parseDayRequest(data: unknown): DayRequest {
   const d = (data ?? {}) as Record<string, unknown>
   const acts = Array.isArray(d.activities) ? d.activities.slice(0, 40) : []
+  const spares = Array.isArray(d.spares) ? d.spares.slice(0, 20) : []
+  const toIn = (raw: unknown): DayActivityIn => {
+    const a = (raw ?? {}) as Record<string, unknown>
+    const lat = num(a.lat)
+    const lng = num(a.lng)
+    return {
+      id: text(a.id, 40),
+      title: text(a.title, 120),
+      category: AI_CATEGORIES.includes(a.category as never) ? String(a.category) : 'other',
+      start: text(a.start, 5),
+      end: text(a.end, 5),
+      location: text(a.location, 150),
+      ...(lat != null && lng != null ? { lat, lng } : {}),
+      cost: Math.min(1e8, Math.max(0, num(a.cost) ?? 0)),
+      notes: text(a.notes, 300),
+    }
+  }
   const req: DayRequest = {
     destination: text(d.destination, 100),
     currency: text(d.currency, 4).toUpperCase() || 'TWD',
@@ -148,22 +153,8 @@ function parseDayRequest(data: unknown): DayRequest {
     after: text(d.after, 200),
     instruction: text(d.instruction, 1000),
     history: (Array.isArray(d.history) ? d.history : []).slice(-10).map((h) => text(h, 300)).filter(Boolean),
-    activities: acts.map((raw): DayActivityIn => {
-      const a = (raw ?? {}) as Record<string, unknown>
-      const lat = num(a.lat)
-      const lng = num(a.lng)
-      return {
-        id: text(a.id, 40),
-        title: text(a.title, 120),
-        category: AI_CATEGORIES.includes(a.category as never) ? String(a.category) : 'other',
-        start: text(a.start, 5),
-        end: text(a.end, 5),
-        location: text(a.location, 150),
-        ...(lat != null && lng != null ? { lat, lng } : {}),
-        cost: Math.min(1e8, Math.max(0, num(a.cost) ?? 0)),
-        notes: text(a.notes, 300),
-      }
-    }),
+    activities: acts.map(toIn),
+    spares: spares.map(toIn).filter((a) => a.title),
   }
   if (!req.instruction) throw new HttpsError('invalid-argument', 'instruction is required', { reason: 'bad-request' })
   if (!/^\d{4}-\d{2}-\d{2}$/.test(req.date)) throw new HttpsError('invalid-argument', 'date must be YYYY-MM-DD', { reason: 'bad-request' })
