@@ -7,6 +7,7 @@ import BudgetView from './components/BudgetView'
 import DocsView from './components/DocsView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
+import ViewBoundary from './components/ViewBoundary'
 import { useRouteSync } from './useRouteSync'
 import { InviteGate, JoinBanner, NoticeBar } from './components/Banners'
 import { useState } from 'react'
@@ -46,10 +47,12 @@ export default function App() {
       </div>
       <div className="main">
         <div className="content">
-          {view === 'board' && <Board />}
-          {view === 'map' && <MapView />}
-          {view === 'budget' && <BudgetView />}
-          {view === 'docs' && <DocsView />}
+          <ViewBoundary>
+            {view === 'board' && <Board />}
+            {view === 'map' && <MapView />}
+            {view === 'budget' && <BudgetView />}
+            {view === 'docs' && <DocsView />}
+          </ViewBoundary>
         </div>
         {selected && (view === 'board' || view === 'map') && <ActivityEditor />}
       </div>
