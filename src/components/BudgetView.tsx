@@ -92,6 +92,7 @@ export default function BudgetView() {
         </div>
       </div>
 
+      <div className="budget-cards">
       <div className="panel-card">
         <h3>依類別</h3>
         {byCategory.length === 0 ? (
@@ -191,6 +192,7 @@ export default function BudgetView() {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   )

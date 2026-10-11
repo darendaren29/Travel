@@ -348,7 +348,10 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
             <small>DAY</small>
             {String(index + 1).padStart(2, '0')}
           </span>
-          <span className="day-name">第 {index + 1} 天</span>
+          <span className="day-title">
+            <span className="day-name">第 {index + 1} 天</span>
+            <span className="day-date">{formatDate(addDays(trip.startDate, index))}</span>
+          </span>
           <span className="day-tools">
             <button className="btn sm ghost ai-day" onClick={onAi} title="AI 協作：用一句話調整這一天">
               ✨
@@ -373,13 +376,7 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
             </button>
           </span>
         </div>
-        <DayBriefLine activities={activities} />
-        <div className="sub">
-          <span>{formatDate(addDays(trip.startDate, index))}</span>
-          <span>
-            {activities.length} 項 · {formatMoney(cost, trip.currency)}
-          </span>
-        </div>
+        <DayBriefLine activities={activities} cost={formatMoney(cost, trip.currency)} />
         <DayStrip activities={activities} conflicts={conflicts} travel={travel} />
       </header>
 
@@ -404,11 +401,18 @@ function DayColumn({ trip, index, isOver, onAi }: { trip: Trip; index: number; i
   )
 }
 
-/** Under the day title: what the day is about, and the major places it moves between. */
-function DayBriefLine({ activities }: { activities: Activity[] }) {
+/** Under the day title: what the day is about, the major places it moves between, and the tally. */
+function DayBriefLine({ activities, cost }: { activities: Activity[]; cost: string }) {
   const brief = useMemo(() => dayBrief(activities), [activities])
-  if (!activities.length) return null
   const single = brief.route.length === 1
+  if (!activities.length)
+    return (
+      <div className="day-brief">
+        <p className="brief-meta">
+          <span className="cost">0 項 · {cost}</span>
+        </p>
+      </div>
+    )
   return (
     <div className="day-brief">
       <p className="brief-sum" title={activities.map((a) => a.title).join('、')}>
@@ -416,14 +420,6 @@ function DayBriefLine({ activities }: { activities: Activity[] }) {
           ✦
         </span>
         <span className="t">{brief.summary}</span>
-        <span className="tally">
-          {brief.tally.map(([c, n]) => (
-            <span key={c} style={{ '--c': CATEGORY_META[c].color } as React.CSSProperties} title={CATEGORY_META[c].label}>
-              {CATEGORY_META[c].icon}
-              {n}
-            </span>
-          ))}
-        </span>
       </p>
       {brief.route.length > 0 && (
         <p className="brief-route" title="當日主要移動（相距 15 km 內視為同一地區）">
@@ -446,6 +442,19 @@ function DayBriefLine({ activities }: { activities: Activity[] }) {
           {single && brief.route[0].count > 1 && <span className="stay">全天同一地區</span>}
         </p>
       )}
+      <p className="brief-meta">
+        <span className="tally">
+          {brief.tally.map(([c, n]) => (
+            <span key={c} style={{ '--c': CATEGORY_META[c].color } as React.CSSProperties} title={CATEGORY_META[c].label}>
+              {CATEGORY_META[c].icon}
+              {n}
+            </span>
+          ))}
+        </span>
+        <span className="cost">
+          {activities.length} 項 · {cost}
+        </span>
+      </p>
     </div>
   )
 }

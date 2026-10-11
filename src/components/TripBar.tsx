@@ -5,6 +5,17 @@ import { TRAVEL_MODES, type TravelMode } from '../types'
 import { useGooglePlaces } from '../places'
 import { tripMode } from '../routes'
 
+/** "10/16 (五)" with the weekday in its own span so phones can drop it. */
+const Dated = ({ d }: { d: Date }) => {
+  const [md, wd] = formatDate(d).split(' ')
+  return (
+    <>
+      {md}
+      <span className="wd"> {wd}</span>
+    </>
+  )
+}
+
 const titleEm = (name: string) => Math.max(4, [...name].reduce((n, ch) => n + (/[\u2E80-\uFFFF]/.test(ch) ? 1.08 : 0.64), 0)).toFixed(1)
 
 export default function TripBar() {
@@ -90,7 +101,7 @@ export default function TripBar() {
 
       <div className="stat">
         <span>
-          <b>{trip.days.length}</b> 天 · {formatDate(new Date(trip.startDate + 'T00:00:00'))} → {formatDate(endDate)}
+          <b>{trip.days.length}</b> 天 · <Dated d={addDays(trip.startDate, 0)} /> → <Dated d={endDate} />
         </span>
         <span>
           <b>{count}</b> 個活動
