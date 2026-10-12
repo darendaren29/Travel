@@ -103,6 +103,8 @@ interface State {
   moveSpareGroup: (id: string, dir: -1 | 1) => void
   /** Replace day `dayIndex` with `activities` (AI co-editing); keeps an undo snapshot. */
   replaceDayActivities: (dayIndex: number, activities: Activity[], label: string) => void
+  /** Replace 備用景點 block `groupId` with `activities` (AI co-editing); same undo as a day. */
+  replaceSpareGroup: (groupId: string, activities: Activity[], label: string) => void
   /** Last AI day change, offered as "undo" for a short while (not persisted). */
   dayUndo: DayUndo | null
   undoDay: () => void
@@ -127,7 +129,9 @@ export interface DeletedActivity {
 
 export interface DayUndo {
   tripId: string
+  /** Day that was replaced, or -1 when a 備用景點 block (`groupId`) was. */
   dayIndex: number
+  groupId?: string
   label: string
   activities: Activity[]
   /** docId → activityId links that the change removed. */
@@ -217,6 +221,22 @@ const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
   // A spare the AI slotted in is now planned.
   for (const g of spareGroups(t)) g.activityIds = g.activityIds.filter((id) => !keep.has(id))
   sortDay(t, dayIndex)
+}
+
+/** Make block `groupId` hold exactly `activities` (as spares, no times); removed ones are deleted and their tickets unlinked. */
+const writeSpareGroup = (t: Trip, groupId: string, activities: Activity[]) => {
+  const g = spareGroup(t, groupId)
+  const keep = new Set(activities.map((a) => a.id))
+  for (const id of g.activityIds) {
+    if (keep.has(id)) continue
+    delete t.activities[id]
+    Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
+  }
+  for (const a of activities) t.activities[a.id] = { ...a, start: '', end: '' }
+  g.activityIds = activities.map((a) => a.id)
+  // An id can live in one place only.
+  for (const other of spareGroups(t)) if (other !== g) other.activityIds = other.activityIds.filter((id) => !keep.has(id))
+  t.days.forEach((d) => (d.activityIds = d.activityIds.filter((id) => !keep.has(id))))
 }
 
 /** The trip being viewed (same fallback as useCurrentTrip). */
@@ -538,11 +558,22 @@ export const useStore = create<State>()(
           mutate((t) => writeDay(t, dayIndex, activities))
           set({ dayUndo: { tripId: trip.id, dayIndex, label, activities: before, docLinks, at: Date.now() } })
         },
+        replaceSpareGroup: (groupId, activities, label) => {
+          const trip = currentTrip(get())
+          const group = trip && spareGroupsOf(trip).find((g) => g.id === groupId)
+          if (!trip || !group) return
+          const before = group.activityIds.map((id) => trip.activities[id]).filter(Boolean)
+          const docLinks: Record<string, string> = {}
+          Object.values(trip.docs ?? {}).forEach((d) => d.activityId && group.activityIds.includes(d.activityId) && (docLinks[d.id] = d.activityId))
+          mutate((t) => writeSpareGroup(t, groupId, activities))
+          set({ dayUndo: { tripId: trip.id, dayIndex: -1, groupId, label, activities: before, docLinks, at: Date.now() } })
+        },
         undoDay: () => {
           const u = get().dayUndo
           if (!u || u.tripId !== get().currentTripId) return set({ dayUndo: null })
           mutate((t) => {
-            writeDay(t, u.dayIndex, u.activities)
+            if (u.groupId) writeSpareGroup(t, u.groupId, u.activities)
+            else writeDay(t, u.dayIndex, u.activities)
             // Re-link tickets that pointed at activities the change had removed.
             for (const [docId, actId] of Object.entries(u.docLinks)) if (t.docs?.[docId] && t.activities[actId]) t.docs[docId].activityId = actId
           })

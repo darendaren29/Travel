@@ -148,6 +148,71 @@ export const DAY_SYSTEM_PROMPT = `你是旅遊行程協作助手，正在和使�
 - summary 用 1–3 句繁體中文說明你做了哪些調整與原因；若需求無法完全達成也請說明。
 - 只輸出符合 schema 的 JSON。`
 
+// ---------------------------------------------------------------------------
+// AI co-editing of a 備用景點 block ("備用區塊 AI 協作")
+// ---------------------------------------------------------------------------
+
+export interface SpareRequest {
+  destination: string
+  currency: string
+  /** The block's name: a region, a country or a date range the traveller chose. */
+  groupName: string
+  /** YYYY-MM-DD */
+  startDate: string
+  totalDays: number
+  /** One line per day (date + places) so suggestions fit the route. */
+  days: string[]
+  /** Spares already in the block. */
+  spares: DayActivityIn[]
+  /** Titles already planned on the days, so they are not suggested again. */
+  planned: string[]
+  instruction: string
+  /** Earlier instructions in this session, oldest first. */
+  history: string[]
+}
+
+/** What the model returns: the whole revised block plus a short explanation. */
+export interface AiSpare {
+  summary: string
+  activities: (AiActivity & { id?: string })[]
+}
+
+/** One-tap requests shown in the block dialog. */
+export const SPARE_QUICK_ASKS = [
+  '推薦 5 個雨天備案（室內為主）',
+  '推薦這一區的在地餐廳',
+  '適合親子的景點',
+  '免費或便宜的好去處',
+  '傍晚或夜間可去的地方',
+  '補上每個地點的建議停留時間與提示',
+]
+
+export const SPARE_SYSTEM_PROMPT = `你是旅遊行程協作助手，正在幫使用者整理一個「備用景點區塊」：這些是還沒排進任何一天的候選地點，之後視天氣、時間或心情再排入行程。
+規則：
+- 區塊名稱代表範圍（地區、國家或日期）；推薦的地點必須落在這個範圍內，而且和行程路線合理（參考各天的地點）。
+- 回傳整理後這個區塊的「完整」清單（不是只有變動的部分）。沒被要求修改的項目保持原樣並沿用原本的 id；修改過的也沿用原 id；新增的 id 填空字串；被要求刪除的不要出現。
+- 不要重複推薦已排在行程裡的地點（已列出），也不要重複區塊裡已有的。
+- 每個地點都要真實存在，附正確的 WGS84 經緯度（小數，不可為 0）。備用景點不排時間：start 與 end 都填空字串。
+- cost 為每人預估花費（指定幣別、整數，免費填 0）；notes 說明適合什麼情況（雨天、有空檔、親子…）與建議停留時間。
+- 全部使用繁體中文（地名可附原文）。summary 用 1–3 句說明推薦理由或做了哪些整理。
+- 只輸出符合 schema 的 JSON。`
+
+export const buildSparePrompt = (r: SpareRequest) =>
+  [
+    `目的地：${r.destination || '（未填）'}`,
+    `備用區塊名稱：${r.groupName}`,
+    `行程：${r.startDate} 起共 ${r.totalDays} 天`,
+    r.days.length ? `各天概要：\n${r.days.map((d) => `- ${d}`).join('\n')}` : '',
+    `幣別：${r.currency}`,
+    '目前區塊內的備用景點（每行一個，JSON）：',
+    r.spares.length ? r.spares.map((a) => JSON.stringify(a)).join('\n') : '（尚無）',
+    r.planned.length ? `已排進行程、不要再推薦：${r.planned.join('、')}` : '',
+    r.history.length ? `先前已提出的要求：\n${r.history.map((h) => `- ${h}`).join('\n')}` : '',
+    `這次的要求：${r.instruction}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六']
 
 export const buildDayPrompt = (r: DayRequest) => {

@@ -11,14 +11,18 @@ import {
   CLAUDE_DAY_DAILY_LIMIT,
   DAY_SYSTEM_PROMPT,
   PACES,
+  SPARE_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
   buildDayPrompt,
   buildPrompt,
+  buildSparePrompt,
   type AiDay,
+  type AiSpare,
   type AiTrip,
   type DayActivityIn,
   type DayRequest,
   type ItineraryRequest,
+  type SpareRequest,
 } from '../../src/aiPrompt'
 
 initializeApp()
@@ -29,6 +33,8 @@ const MODEL = 'claude-opus-5-5'
 const LIMITS = {
   trip: { field: 'count', limit: CLAUDE_DAILY_LIMIT, reason: 'daily-limit' },
   day: { field: 'dayCount', limit: CLAUDE_DAY_DAILY_LIMIT, reason: 'daily-limit-day' },
+  // Spare-block revisions share the day budget: same size of job.
+  spare: { field: 'dayCount', limit: CLAUDE_DAY_DAILY_LIMIT, reason: 'daily-limit-day' },
 } as const
 type Kind = keyof typeof LIMITS
 const MAX_DAYS = 21
@@ -100,7 +106,27 @@ const DAY_SCHEMA = {
   },
 }
 
+/** A 備用景點 block: same item shape as a day (times are ignored), plus a summary. */
+const SPARE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'activities'],
+  properties: {
+    summary: str('1–3 句繁體中文，說明推薦理由或做了哪些整理'),
+    activities: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'title', 'category', 'start', 'end', 'location', 'lat', 'lng', 'cost', 'notes'],
+        properties: { id: str('沿用原項目的 id；新增的填空字串'), ...ACTIVITY_PROPS, start: str('備用景點不排時間，填空字串'), end: str('填空字串') },
+      },
+    },
+  },
+}
+
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+const texts = (v: unknown, n: number, max: number): string[] => (Array.isArray(v) ? v : []).slice(0, n).map((x) => text(x, max)).filter(Boolean)
 
 /** Only structured fields reach the prompt, so the function can't be used as a general Claude proxy. */
 function parseRequest(data: unknown): ItineraryRequest {
@@ -122,27 +148,49 @@ function parseRequest(data: unknown): ItineraryRequest {
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 
+/** One incoming activity, every field bounded. */
+const toIn = (raw: unknown): DayActivityIn => {
+  const a = (raw ?? {}) as Record<string, unknown>
+  const lat = num(a.lat)
+  const lng = num(a.lng)
+  return {
+    id: text(a.id, 40),
+    title: text(a.title, 120),
+    category: AI_CATEGORIES.includes(a.category as never) ? String(a.category) : 'other',
+    start: text(a.start, 5),
+    end: text(a.end, 5),
+    location: text(a.location, 150),
+    ...(lat != null && lng != null ? { lat, lng } : {}),
+    cost: Math.min(1e8, Math.max(0, num(a.cost) ?? 0)),
+    notes: text(a.notes, 300),
+  }
+}
+
+/** Spare-block co-editing request: bounded, structured fields only. */
+function parseSpareRequest(data: unknown): SpareRequest {
+  const d = (data ?? {}) as Record<string, unknown>
+  const req: SpareRequest = {
+    destination: text(d.destination, 100),
+    currency: text(d.currency, 4).toUpperCase() || 'TWD',
+    groupName: text(d.groupName, 60) || '備用景點',
+    startDate: text(d.startDate, 10),
+    totalDays: Math.min(60, Math.max(1, Math.round(Number(d.totalDays) || 1))),
+    days: texts(d.days, 30, 200),
+    spares: (Array.isArray(d.spares) ? d.spares.slice(0, 40) : []).map(toIn).filter((a) => a.title),
+    planned: texts(d.planned, 150, 80),
+    instruction: text(d.instruction, 1000),
+    history: texts(d.history, 10, 300).slice(-10),
+  }
+  if (!req.instruction) throw new HttpsError('invalid-argument', 'instruction is required', { reason: 'bad-request' })
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(req.startDate)) throw new HttpsError('invalid-argument', 'startDate must be YYYY-MM-DD', { reason: 'bad-request' })
+  return req
+}
+
 /** Day co-editing request: bounded, structured fields only. */
 function parseDayRequest(data: unknown): DayRequest {
   const d = (data ?? {}) as Record<string, unknown>
   const acts = Array.isArray(d.activities) ? d.activities.slice(0, 40) : []
   const spares = Array.isArray(d.spares) ? d.spares.slice(0, 20) : []
-  const toIn = (raw: unknown): DayActivityIn => {
-    const a = (raw ?? {}) as Record<string, unknown>
-    const lat = num(a.lat)
-    const lng = num(a.lng)
-    return {
-      id: text(a.id, 40),
-      title: text(a.title, 120),
-      category: AI_CATEGORIES.includes(a.category as never) ? String(a.category) : 'other',
-      start: text(a.start, 5),
-      end: text(a.end, 5),
-      location: text(a.location, 150),
-      ...(lat != null && lng != null ? { lat, lng } : {}),
-      cost: Math.min(1e8, Math.max(0, num(a.cost) ?? 0)),
-      notes: text(a.notes, 300),
-    }
-  }
   const req: DayRequest = {
     destination: text(d.destination, 100),
     currency: text(d.currency, 4).toUpperCase() || 'TWD',
@@ -225,15 +273,25 @@ function toHttpsError(e: unknown): HttpsError {
   return new HttpsError('internal', e instanceof Error ? e.message : String(e), { reason: 'unknown' })
 }
 
-/** All Claude work for the web app: `kind: 'trip'` (default) builds an itinerary, `kind: 'day'` revises one day. */
+/**
+ * All Claude work for the web app: `kind: 'trip'` (default) builds an itinerary, `kind: 'day'`
+ * revises one day, `kind: 'spare'` revises one 備用景點 block.
+ */
 export const claudeItinerary = onCall(
   { region: 'asia-east1', timeoutSeconds: 540, memory: '512MiB', maxInstances: 5, secrets: [anthropicKey] },
   async (request) => {
     const uid = request.auth?.uid
     if (!uid) throw new HttpsError('unauthenticated', 'sign in first', { reason: 'unauthenticated' })
-    const kind: Kind = (request.data as { kind?: unknown } | null)?.kind === 'day' ? 'day' : 'trip'
+    const k = (request.data as { kind?: unknown } | null)?.kind
+    const kind: Kind = k === 'day' ? 'day' : k === 'spare' ? 'spare' : 'trip'
 
     try {
+      if (kind === 'spare') {
+        const req = parseSpareRequest(request.data)
+        await takeDailySlot(uid, kind)
+        const spares = await askClaude<AiSpare>(SPARE_SYSTEM_PROMPT, buildSparePrompt(req), SPARE_SCHEMA, 16000, uid, kind)
+        return { spares, model: MODEL }
+      }
       if (kind === 'day') {
         const req = parseDayRequest(request.data)
         await takeDailySlot(uid, kind)

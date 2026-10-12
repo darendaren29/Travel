@@ -1509,6 +1509,16 @@ textarea {
   letter-spacing: 0;
 }
 
+/* block co-editing dialog: the pin stands where a day's times would */
+.plan-pin {
+  font-size: 14px;
+  text-align: center;
+}
+
+.spare-ai .day-ai-stamp {
+  font-size: 16px;
+}
+
 .spare-note {
   margin: 2px 0 10px;
   padding: 9px 11px;

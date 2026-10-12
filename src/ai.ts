@@ -1,8 +1,18 @@
 import { FunctionsError, httpsCallable } from 'firebase/functions'
 import { functions } from './firebase'
-import { CLAUDE_DAILY_LIMIT, CLAUDE_DAY_DAILY_LIMIT, type AiDay, type AiTrip, type DayActivityIn, type DayRequest, type ItineraryRequest } from './aiPrompt'
-import { CATEGORIES, DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME, type Activity, type Category, type Trip } from './types'
-import { longId, spareActivities, toMinutes, toTime, uid } from './utils'
+import {
+  CLAUDE_DAILY_LIMIT,
+  CLAUDE_DAY_DAILY_LIMIT,
+  type AiDay,
+  type AiSpare,
+  type AiTrip,
+  type DayActivityIn,
+  type DayRequest,
+  type ItineraryRequest,
+  type SpareRequest,
+} from './aiPrompt'
+import { CATEGORIES, DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME, type Activity, type Category, type SpareGroup, type Trip } from './types'
+import { addDays, dayActivities, longId, plannedActivities, spareActivities, toMinutes, toTime, uid } from './utils'
 
 export type { ItineraryRequest, AiTrip } from './aiPrompt'
 
@@ -135,6 +145,70 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
 
 const claudeDayCall = httpsCallable<DayRequest & { kind: 'day' }, { day: AiDay; model: string }>(functions, 'claudeItinerary', { timeout: 300_000 })
 
+/** An activity as sent to the model. */
+const toIn = (a: Activity): DayActivityIn => ({
+  id: a.id,
+  title: a.title,
+  category: a.category,
+  start: a.start,
+  end: a.end,
+  location: a.location ?? '',
+  ...(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : {}),
+  cost: a.cost,
+  notes: a.notes ?? '',
+})
+
+const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// ---------------------------------------------------------------------------
+// AI co-editing of a 備用景點 block
+// ---------------------------------------------------------------------------
+
+const claudeSpareCall = httpsCallable<SpareRequest & { kind: 'spare' }, { spares: AiSpare; model: string }>(functions, 'claudeItinerary', { timeout: 300_000 })
+
+/** The request describing block `group` with `current` as its spares (the live block, or a pending proposal). */
+export function spareRequest(trip: Trip, group: SpareGroup, current: Activity[], instruction: string, history: string[]): SpareRequest {
+  const days = trip.days.map((_, i) => {
+    const places = [...new Set(dayActivities(trip, i).map((a) => a.location || a.title))].slice(0, 6)
+    return `第 ${i + 1} 天 ${isoDate(addDays(trip.startDate, i))}：${places.join('、') || '（尚無安排）'}`
+  })
+  return {
+    destination: trip.destination,
+    currency: trip.currency,
+    groupName: group.name,
+    startDate: trip.startDate,
+    totalDays: trip.days.length,
+    days,
+    spares: current.map(toIn),
+    planned: [...new Set(plannedActivities(trip).map((a) => a.title))].slice(0, 150),
+    instruction,
+    history,
+  }
+}
+
+/** Ask the AI to revise a 備用景點 block. Returns the explanation and the proposed spares (not yet applied). */
+export async function reviseSpares(req: SpareRequest, current: Activity[]): Promise<{ summary: string; activities: Activity[] }> {
+  const raw = (await claudeSpareCall({ ...req, kind: 'spare' })).data.spares
+  return { summary: (raw.summary ?? '').trim(), activities: toSpareProposal(raw, current) }
+}
+
+/** The model's block as spare activities (no time slot); ids of current spares are reused so photos and tickets stay linked. */
+export function toSpareProposal(raw: AiSpare, current: Activity[]): Activity[] {
+  const byId = new Map(current.map((a) => [a.id, a]))
+  const used = new Set<string>()
+  const out: Activity[] = []
+  for (const a of raw.activities ?? []) {
+    if (!a?.title) continue
+    const old = a.id && byId.has(a.id) && !used.has(a.id) ? byId.get(a.id)! : undefined
+    const id = old ? old.id : uid()
+    if (old) used.add(id)
+    const next = { ...normalizeActivity({ ...a, start: '09:00', end: '10:00' }, id, 9 * 60), start: '', end: '' }
+    if (old?.photo && (old.location ?? '') === (next.location ?? '')) next.photo = old.photo
+    out.push(next)
+  }
+  return out
+}
+
 /** The request describing day `dayIndex` with `current` as its activities (the live day, or a pending proposal). */
 export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], instruction: string, history: string[]): DayRequest {
   const date = new Date(trip.startDate + 'T00:00:00')
@@ -144,17 +218,6 @@ export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], in
     const a = ids?.length ? trip.activities[ids[last ? ids.length - 1 : 0]] : undefined
     return a ? `${a.start}–${a.end} ${a.title}${a.location ? `（${a.location}）` : ''}` : ''
   }
-  const toIn = (a: Activity): DayActivityIn => ({
-    id: a.id,
-    title: a.title,
-    category: a.category,
-    start: a.start,
-    end: a.end,
-    location: a.location ?? '',
-    ...(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : {}),
-    cost: a.cost,
-    notes: a.notes ?? '',
-  })
   const spares = spareActivities(trip)
   return {
     destination: trip.destination,

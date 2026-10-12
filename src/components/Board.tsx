@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import DayAiDialog from './DayAiDialog'
+import SpareAiDialog from './SpareAiDialog'
 import {
   DndContext,
   DragOverlay,
@@ -87,7 +88,9 @@ export default function Board() {
   /** Droppable currently hovered: a day's id or a spare column's id. */
   const [over, setOver] = useState<string | null>(null)
   const [aiDay, setAiDay] = useState<number | null>(null)
+  const [aiGroup, setAiGroup] = useState<string | null>(null)
   const groups = spareGroupsOf(trip)
+  const aiGroupObj = aiGroup ? groups.find((g) => g.id === aiGroup) : undefined
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -184,7 +187,7 @@ export default function Board() {
             ＋ 新增一天
           </button>
           {groups.map((g, gi) => (
-            <SpareColumn key={g.id} trip={trip} group={g} position={gi} count={groups.length} isOver={over === spareColId(g.id)} />
+            <SpareColumn key={g.id} trip={trip} group={g} position={gi} count={groups.length} isOver={over === spareColId(g.id)} onAi={() => setAiGroup(g.id)} />
           ))}
           <button className="add-day add-spare-group" onClick={() => addSpareGroup()} title="再開一個備用區塊：依國家、地區或日期分開放">
             📌 新增備用區塊
@@ -192,6 +195,7 @@ export default function Board() {
         </div>
       </div>
       {aiDay != null && aiDay < trip.days.length && createPortal(<DayAiDialog dayIndex={aiDay} onClose={() => setAiDay(null)} />, document.body)}
+      {aiGroupObj && createPortal(<SpareAiDialog group={aiGroupObj} onClose={() => setAiGroup(null)} />, document.body)}
       <DayUndoBar />
       <DeleteUndoBar />
       <DragOverlay>{active ? <CardView activity={active} overlay /> : null}</DragOverlay>
@@ -329,7 +333,21 @@ function SpareChip({ group, on, current, onClick }: { group: SpareGroup; on: boo
  * likes (a region, a country, a date range). Drag one onto a day (or its chip) to schedule it, drag
  * a day's card here to take it off the schedule. The name is edited in place.
  */
-function SpareColumn({ trip, group, position, count, isOver }: { trip: Trip; group: SpareGroup; position: number; count: number; isOver: boolean }) {
+function SpareColumn({
+  trip,
+  group,
+  position,
+  count,
+  isOver,
+  onAi,
+}: {
+  trip: Trip
+  group: SpareGroup
+  position: number
+  count: number
+  isOver: boolean
+  onAi: () => void
+}) {
   const { addSpare, renameSpareGroup, removeSpareGroup, moveSpareGroup } = useStore()
   const spares = spareGroupActivities(trip, group)
   const { setNodeRef } = useDroppable({ id: spareColId(group.id) })
@@ -359,6 +377,9 @@ function SpareColumn({ trip, group, position, count, isOver }: { trip: Trip; gro
             <span className="day-date">不排時間 · {spares.length} 個</span>
           </span>
           <span className="day-tools">
+            <button className="btn sm ghost ai-day" onClick={onAi} title="AI 協作：請 Claude 依這個區塊的範圍推薦或整理備用景點">
+              ✨
+            </button>
             {count > 1 && (
               <>
                 <button className="btn sm ghost" onClick={() => moveSpareGroup(group.id, -1)} disabled={position === 0} title="往前移">
