@@ -41,6 +41,17 @@ export interface Day {
   activityIds: string[]
 }
 
+/** One 備用景點 block. */
+export interface SpareGroup {
+  id: string
+  name: string
+  activityIds: string[]
+}
+
+/** Id of the block a trip's legacy `spare` list becomes, and of the block shown while a trip has none. */
+export const DEFAULT_SPARE_GROUP = 'spare-default'
+export const DEFAULT_SPARE_NAME = '備用景點'
+
 export interface Trip {
   id: string
   name: string
@@ -52,10 +63,16 @@ export interface Trip {
   days: Day[]
   activities: Record<string, Activity>
   /**
-   * 備用景點: ids of activities kept aside without a time slot (their start/end are ''). They sit in
-   * `activities` like any other but in no day, and can be dragged into one when the plan changes.
+   * 備用景點 (legacy, single list): ids of activities kept aside without a time slot. Newer trips
+   * use `spareGroups`; a trip with only `spare` is read as one group named 備用景點.
    */
   spare?: string[]
+  /**
+   * 備用景點 blocks: named groups (a region, a country, a date range…) of activities kept aside
+   * without a time slot (their start/end are ''). They sit in `activities` like any other but in
+   * no day, and can be dragged into one when the plan changes.
+   */
+  spareGroups?: SpareGroup[]
   /** Cloud fields — present once the trip is stored in Firestore. */
   ownerId?: string
   members?: string[]

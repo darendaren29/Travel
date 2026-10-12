@@ -1443,14 +1443,58 @@ textarea {
   outline-color: var(--day);
 }
 
-/* chip at the end of the day navigator */
+/* block name edited in place, set like the day title */
+.spare-name {
+  font-family: var(--font-title);
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1.5px dashed transparent;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  box-shadow: none;
+}
+
+.spare-name:hover {
+  border-bottom-color: var(--border-strong);
+}
+
+.spare-name:focus {
+  outline: none;
+  border-bottom-color: var(--day);
+  box-shadow: none;
+}
+
+/* "new block" card after the last block */
+.add-spare-group {
+  flex-basis: 170px;
+  height: 120px;
+  font-size: 14px;
+  border-color: color-mix(in srgb, #8a8276 60%, transparent);
+}
+
+/* chips at the end of the day navigator: one per block */
 .day-chip.spare-chip {
   --day: #8a8276;
   border-style: dashed;
+  max-width: 110px;
 }
 
 .day-chip.spare-chip b {
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.spare-chip-name {
+  max-width: 94px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* a card without a time slot */

@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Activity, AuthUser, Leg, Trip, TripDoc } from './types'
+import { DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME, type Activity, type AuthUser, type Leg, type SpareGroup, type Trip, type TripDoc } from './types'
 import { sampleTrip } from './sample'
-import { duration, longId, toMinutes, toTime, uid } from './utils'
+import { duration, longId, spareGroupsOf, toMinutes, toTime, uid } from './utils'
 import type { BasemapKey } from './basemaps'
 
 export type View = 'board' | 'map' | 'budget' | 'docs'
@@ -89,11 +89,18 @@ interface State {
   /** Move an activity (from a day or the spare list) to a day at a given position, re-timing it to follow its new predecessor. */
   moveActivity: (id: string, toDayIndex: number, toIndex: number) => void
   duplicateActivity: (id: string) => void
-  // 備用景點 — kept without a time slot
-  /** New spare activity (selected for editing). */
-  addSpare: (partial?: Partial<Activity>) => string
-  /** Take an activity off its day (its times are cleared) and keep it as a spare at `index` (end by default). */
-  moveToSpare: (id: string, index?: number) => void
+  // 備用景點 — kept without a time slot, in named blocks
+  /** New spare activity in block `groupId` (first block by default; selected for editing). */
+  addSpare: (partial?: Partial<Activity>, groupId?: string) => string
+  /** Take an activity off its day (its times are cleared) and keep it in block `groupId` at `index` (end by default). */
+  moveToSpare: (id: string, groupId?: string, index?: number) => void
+  /** New empty block; returns its id. */
+  addSpareGroup: (name?: string) => string
+  renameSpareGroup: (id: string, name: string) => void
+  /** Remove a block and delete the spares in it. */
+  removeSpareGroup: (id: string) => void
+  /** Move a block left (-1) or right (+1) among the blocks. */
+  moveSpareGroup: (id: string, dir: -1 | 1) => void
   /** Replace day `dayIndex` with `activities` (AI co-editing); keeps an undo snapshot. */
   replaceDayActivities: (dayIndex: number, activities: Activity[], label: string) => void
   /** Last AI day change, offered as "undo" for a short while (not persisted). */
@@ -109,8 +116,9 @@ interface State {
 export interface DeletedActivity {
   tripId: string
   activity: Activity
-  /** Day it was on, or -1 for the spare list. */
+  /** Day it was on, or -1 for a 備用景點 block (`groupId`). */
   dayIndex: number
+  groupId?: string
   index: number
   /** Ticket ids that were linked to it. */
   docIds: string[]
@@ -158,11 +166,37 @@ const sortDay = (trip: Trip, dayIndex: number) => {
   day.activityIds.sort((a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start))
 }
 
-/** Spare ids of a trip, dropping any whose activity is gone. */
-const spareIds = (t: Trip): string[] => (t.spare = (t.spare ?? []).filter((id) => t.activities[id]))
+/**
+ * 備用景點 blocks of a trip for writing: migrates the legacy single list into one block on first
+ * touch and drops ids whose activity is gone. Only call inside `mutate`.
+ */
+const spareGroups = (t: Trip): SpareGroup[] => {
+  if (!t.spareGroups) t.spareGroups = t.spare?.length ? [{ id: DEFAULT_SPARE_GROUP, name: DEFAULT_SPARE_NAME, activityIds: [...t.spare] }] : []
+  delete t.spare
+  for (const g of t.spareGroups) g.activityIds = g.activityIds.filter((id) => t.activities[id])
+  return t.spareGroups
+}
 
-/** Whether an activity is kept as a spare (no time slot). */
-export const isSpare = (t: Trip, id: string): boolean => Boolean(t.spare?.includes(id))
+/** The block to put a spare in: `id` when it exists, else the first block, creating the default one when there is none. */
+const spareGroup = (t: Trip, id?: string): SpareGroup => {
+  const groups = spareGroups(t)
+  const found = id ? groups.find((g) => g.id === id) : undefined
+  if (found) return found
+  if (groups.length) return groups[0]
+  const g: SpareGroup = { id: DEFAULT_SPARE_GROUP, name: DEFAULT_SPARE_NAME, activityIds: [] }
+  groups.push(g)
+  return g
+}
+
+/** Take an id out of every 備用景點 block. */
+const dropFromSpare = (t: Trip, id: string) => spareGroups(t).forEach((g) => (g.activityIds = g.activityIds.filter((x) => x !== id)))
+
+/** Whether an activity is kept as a spare (no time slot). Read-only. */
+export const isSpare = (t: Trip, id: string): boolean =>
+  (t.spareGroups ?? []).some((g) => g.activityIds.includes(id)) || Boolean(t.spare?.includes(id))
+
+/** Block an activity is kept in (read-only), or undefined when it is on a day. */
+export const spareGroupOf = (t: Trip, id: string): SpareGroup | undefined => spareGroupsOf(t).find((g) => g.activityIds.includes(id))
 
 /** Unlink ticket files whose activity no longer exists. */
 const unlinkOrphanDocs = (t: Trip) =>
@@ -181,7 +215,7 @@ const writeDay = (t: Trip, dayIndex: number, activities: Activity[]) => {
   for (const a of activities) t.activities[a.id] = { ...a }
   day.activityIds = activities.map((a) => a.id)
   // A spare the AI slotted in is now planned.
-  t.spare = spareIds(t).filter((id) => !keep.has(id))
+  for (const g of spareGroups(t)) g.activityIds = g.activityIds.filter((id) => !keep.has(id))
   sortDay(t, dayIndex)
 }
 
@@ -455,19 +489,20 @@ export const useStore = create<State>()(
           const activity = trip?.activities[id]
           if (!trip || !activity) return
           const dayIndex = findDayIndex(trip, id)
-          const index = dayIndex >= 0 ? trip.days[dayIndex].activityIds.indexOf(id) : (trip.spare ?? []).indexOf(id)
+          const group = dayIndex < 0 ? spareGroupOf(trip, id) : undefined
+          const index = dayIndex >= 0 ? trip.days[dayIndex].activityIds.indexOf(id) : (group?.activityIds.indexOf(id) ?? -1)
           const docIds = Object.values(trip.docs ?? {})
             .filter((d) => d.activityId === id)
             .map((d) => d.id)
           mutate((t) => {
             delete t.activities[id]
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
-            spareIds(t)
+            dropFromSpare(t, id)
             // Keep attached files, just unlink them.
             Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === id && delete doc.activityId)
           })
           set({
-            deleted: { tripId: trip.id, activity: { ...activity }, dayIndex, index, docIds, at: Date.now() },
+            deleted: { tripId: trip.id, activity: { ...activity }, dayIndex, groupId: group?.id, index, docIds, at: Date.now() },
             dayUndo: null,
             ...(get().selectedActivityId === id ? { selectedActivityId: null } : {}),
           })
@@ -484,8 +519,8 @@ export const useStore = create<State>()(
               t.days[d.dayIndex].activityIds.splice(Math.min(d.index, t.days[d.dayIndex].activityIds.length), 0, d.activity.id)
               sortDay(t, d.dayIndex)
             } else {
-              const spare = spareIds(t)
-              spare.splice(Math.min(Math.max(0, d.index), spare.length), 0, d.activity.id)
+              const ids = spareGroup(t, d.groupId).activityIds
+              ids.splice(Math.min(Math.max(0, d.index), ids.length), 0, d.activity.id)
               t.activities[d.activity.id].start = ''
               t.activities[d.activity.id].end = ''
             }
@@ -520,7 +555,7 @@ export const useStore = create<State>()(
             const target = t.days[toDayIndex]
             if (!a || !target) return
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
-            t.spare = spareIds(t).filter((x) => x !== id)
+            dropFromSpare(t, id)
             const idx = Math.max(0, Math.min(toIndex, target.activityIds.length))
             target.activityIds.splice(idx, 0, id)
 
@@ -547,30 +582,63 @@ export const useStore = create<State>()(
           const { id: _omit, ...rest } = src
           void _omit
           if (di < 0) {
-            if (isSpare(trip, id)) get().addSpare(rest)
+            const g = spareGroupOf(trip, id)
+            if (g) get().addSpare(rest, g.id)
             return
           }
           get().addActivity(di, { ...rest, start: src.end, end: toTime(toMinutes(src.end) + duration(src)) })
         },
-        addSpare: (partial = {}) => {
+        addSpare: (partial = {}, groupId) => {
           const id = uid()
           mutate((t) => {
             t.activities[id] = { id, title: '備用景點', category: 'sight', cost: 0, ...partial, start: '', end: '' }
-            spareIds(t).push(id)
+            spareGroup(t, groupId).activityIds.push(id)
           })
           set({ selectedActivityId: id })
           return id
         },
-        moveToSpare: (id, index) =>
+        moveToSpare: (id, groupId, index) =>
           mutate((t) => {
             const a = t.activities[id]
             if (!a) return
             t.days.forEach((d) => (d.activityIds = d.activityIds.filter((x) => x !== id)))
-            const spare = spareIds(t).filter((x) => x !== id)
-            spare.splice(index == null || index < 0 || index > spare.length ? spare.length : index, 0, id)
-            t.spare = spare
+            dropFromSpare(t, id)
+            const ids = spareGroup(t, groupId).activityIds
+            ids.splice(index == null || index < 0 || index > ids.length ? ids.length : index, 0, id)
             a.start = ''
             a.end = ''
+          }),
+        addSpareGroup: (name) => {
+          const id = `sg-${uid()}`
+          mutate((t) => {
+            const groups = spareGroups(t)
+            groups.push({ id, name: name?.trim() || `備用區塊 ${groups.length + 1}`, activityIds: [] })
+          })
+          return id
+        },
+        renameSpareGroup: (id, name) =>
+          mutate((t) => {
+            const g = spareGroup(t, id)
+            if (g.id === id) g.name = name
+          }),
+        removeSpareGroup: (id) =>
+          mutate((t) => {
+            const groups = spareGroups(t)
+            const g = groups.find((x) => x.id === id)
+            if (!g) return
+            for (const aid of g.activityIds) {
+              delete t.activities[aid]
+              Object.values(t.docs ?? {}).forEach((doc) => doc.activityId === aid && delete doc.activityId)
+            }
+            t.spareGroups = groups.filter((x) => x !== g)
+          }),
+        moveSpareGroup: (id, dir) =>
+          mutate((t) => {
+            const groups = spareGroups(t)
+            const i = groups.findIndex((x) => x.id === id)
+            const j = i + dir
+            if (i < 0 || j < 0 || j >= groups.length) return
+            ;[groups[i], groups[j]] = [groups[j], groups[i]]
           }),
       }
     },

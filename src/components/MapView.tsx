@@ -3,23 +3,25 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, useMapEvents 
 import L from 'leaflet'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORY_META, type Activity, type Trip } from '../types'
-import { dayActivities, dayColor, formatMoney, spareActivities } from '../utils'
+import { dayActivities, dayColor, formatMoney, spareGroupActivities, spareGroupsOf } from '../utils'
 import { BASEMAPS, resolveBasemap, type BasemapKey } from '../basemaps'
 import { navLinks } from '../nav'
 import { useGooglePlaces } from '../places'
 import GoogleMapPane from './GoogleMap'
 
 export interface DayGroup {
-  /** Day index, or SPARE for the 備用景點 group. */
+  /** Day index, or a negative number for a 備用景點 block (-1, -2, …). */
   index: number
   color: string
   activities: Activity[]
+  /** Spare blocks carry their name; days are labelled by index. */
+  label?: string
 }
 
-export const SPARE = -1
 export const SPARE_COLOR = '#8a8276'
-/** "第 N 天" or the spare label. */
-export const groupLabel = (index: number) => (index === SPARE ? '📌 備用景點' : `第 ${index + 1} 天`)
+export const isSpareGroup = (d: Pick<DayGroup, 'index'>) => d.index < 0
+/** "第 N 天" or the block's name. */
+export const groupLabel = (d: Pick<DayGroup, 'index' | 'label'>) => d.label ?? `第 ${d.index + 1} 天`
 
 interface PaneProps {
   trip: Trip
@@ -54,11 +56,13 @@ export default function MapView() {
   // Google Maps everywhere except Korea (and only when a key is configured).
   const google = useGooglePlaces(trip.destination)
 
-  // One group per day, plus the 備用景點 (index SPARE, grey, no route line) when there are any.
+  // One group per day, plus one per non-empty 備用景點 block (negative index, grey, no route line).
   const days = useMemo<DayGroup[]>(() => {
     const groups: DayGroup[] = trip.days.map((_, i) => ({ index: i, color: dayColor(i), activities: dayActivities(trip, i) }))
-    const spares = spareActivities(trip)
-    if (spares.length) groups.push({ index: SPARE, color: SPARE_COLOR, activities: spares })
+    spareGroupsOf(trip).forEach((g, gi) => {
+      const acts = spareGroupActivities(trip, g)
+      if (acts.length) groups.push({ index: -(gi + 1), color: SPARE_COLOR, activities: acts, label: `📌 ${g.name}` })
+    })
     return groups
   }, [trip])
 
@@ -94,7 +98,7 @@ export default function MapView() {
           <div key={d.index}>
             <h4>
               <span className="dot" style={{ width: 10, height: 10, borderRadius: 5, background: d.color, display: 'inline-block' }} />
-              {groupLabel(d.index)}
+              {groupLabel(d)}
               <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({d.activities.filter(hasGeo).length}/{d.activities.length} 已定位)</span>
             </h4>
             {d.activities.map((a, n) => (
@@ -138,7 +142,7 @@ export default function MapView() {
             <label key={d.index}>
               <input type="checkbox" checked={!hidden.has(d.index)} onChange={() => toggleDay(d.index)} style={{ width: 'auto' }} />
               <span className="sw" style={{ background: d.color }} />
-              {groupLabel(d.index)}
+              {groupLabel(d)}
             </label>
           ))}
         </div>
@@ -177,7 +181,7 @@ function LeafletPane({ trip, days, hidden, selectedId, onSelect, picking, onPick
         const geo = d.activities.filter(hasGeo)
         return (
           <div key={d.index}>
-            {geo.length > 1 && d.index !== SPARE && (
+            {geo.length > 1 && !isSpareGroup(d) && (
               <Polyline positions={geo.map((a) => [a.lat, a.lng])} pathOptions={{ color: d.color, weight: 3, opacity: 0.7, dashArray: '6 6' }} />
             )}
             {d.activities.map((a, n) =>
@@ -188,7 +192,7 @@ function LeafletPane({ trip, days, hidden, selectedId, onSelect, picking, onPick
                       {CATEGORY_META[a.category].icon} {a.title}
                     </b>
                     <br />
-                    {d.index === SPARE ? '備用景點 · 未排時間' : `第 ${d.index + 1} 天 · ${a.start} – ${a.end}`}
+                    {isSpareGroup(d) ? `${groupLabel(d)} · 未排時間` : `第 ${d.index + 1} 天 · ${a.start} – ${a.end}`}
                     {a.location && (
                       <>
                         <br />📍 {a.location}

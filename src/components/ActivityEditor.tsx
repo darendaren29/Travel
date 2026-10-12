@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Activity } from '../types'
-import { duration, formatDuration } from '../utils'
+import { duration, formatDuration, spareGroupsOf } from '../utils'
 import { canNavigate, navLinks } from '../nav'
 import { photoUrl, searchPlaces, useGooglePlaces, type PlaceHit } from '../places'
 import Attachments from './Attachments'
@@ -38,6 +38,8 @@ export default function ActivityEditor() {
   const a = activity
   const dayIndex = trip.days.findIndex((d) => d.activityIds.includes(a.id))
   const spare = dayIndex < 0 // kept as a 備用景點, no time slot
+  const groups = spareGroupsOf(trip)
+  const groupId = spare ? (groups.find((g) => g.activityIds.includes(a.id)) ?? groups[0]).id : null
   const patch = (p: Partial<Activity>) => updateActivity(a.id, p)
 
   const googleSearch = useGooglePlaces(trip.destination)
@@ -151,11 +153,11 @@ export default function ActivityEditor() {
           <div className="field">
             <label>所屬天數</label>
             <select
-              value={dayIndex}
+              value={spare ? `spare:${groupId}` : String(dayIndex)}
               onChange={(e) => {
-                const i = Number(e.target.value)
-                if (i < 0) moveToSpare(a.id)
-                else moveActivity(a.id, i, trip.days[i].activityIds.length)
+                const v = e.target.value
+                if (v.startsWith('spare:')) moveToSpare(a.id, v.slice(6))
+                else moveActivity(a.id, Number(v), trip.days[Number(v)].activityIds.length)
               }}
             >
               {trip.days.map((_, i) => (
@@ -163,7 +165,11 @@ export default function ActivityEditor() {
                   第 {i + 1} 天
                 </option>
               ))}
-              <option value={-1}>📌 備用景點（不排時間）</option>
+              {groups.map((g) => (
+                <option key={g.id} value={`spare:${g.id}`}>
+                  📌 {g.name}（不排時間）
+                </option>
+              ))}
             </select>
           </div>
           <div className="field">

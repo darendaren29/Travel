@@ -21,7 +21,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore, useCurrentTrip } from '../store'
-import { CATEGORY_META, TRAVEL_MODES, type Activity, type Trip } from '../types'
+import { CATEGORY_META, DEFAULT_SPARE_NAME, TRAVEL_MODES, type Activity, type SpareGroup, type Trip } from '../types'
 import {
   addDays,
   dayActivities,
@@ -33,7 +33,8 @@ import {
   formatDate,
   formatDuration,
   formatMoney,
-  spareActivities,
+  spareGroupActivities,
+  spareGroupsOf,
   todayIndex,
   toMinutes,
 } from '../utils'
@@ -47,10 +48,12 @@ const STRIP_END = 24 * 60 // 24:00
 const dayId = (i: number) => `day-${i}`
 const chipId = (i: number) => `chip-${i}`
 const isChip = (id: unknown) => String(id).startsWith('chip-')
-/** The 備用景點 column and its chip; `SPARE` doubles as their "day index". */
+/** 備用景點 blocks: `SPARE` doubles as their "day index"; the block id rides along in `group`. */
 const SPARE = -1
-const SPARE_ID = 'day-spare'
-const SPARE_CHIP = 'chip-spare'
+const spareColId = (gid: string) => `spare:${gid}`
+const spareChipId = (gid: string) => `chip-spare:${gid}`
+/** Block id behind a spare column / chip droppable id, else null. */
+const spareIdOf = (id: string): string | null => (id.startsWith('spare:') ? id.slice(6) : id.startsWith('chip-spare:') ? id.slice(11) : null)
 
 /**
  * Touch: a long press anywhere on a card starts a drag (so a normal swipe still scrolls),
@@ -79,11 +82,12 @@ const scrollToDay = (board: HTMLElement | null, i: number, behavior: ScrollBehav
 
 export default function Board() {
   const trip = useCurrentTrip()
-  const { moveActivity, moveToSpare, addDay } = useStore()
+  const { moveActivity, moveToSpare, addDay, addSpareGroup } = useStore()
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [overDay, setOverDay] = useState<number | null>(null)
+  /** Droppable currently hovered: a day's id or a spare column's id. */
+  const [over, setOver] = useState<string | null>(null)
   const [aiDay, setAiDay] = useState<number | null>(null)
-  const spare = trip.spare ?? []
+  const groups = spareGroupsOf(trip)
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -92,29 +96,31 @@ export default function Board() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const locate = (id: string): { day: number; index: number } | null => {
-    if (id === SPARE_ID || id === SPARE_CHIP) return { day: SPARE, index: -1 }
+  type Loc = { day: number; index: number; group?: string }
+  const locate = (id: string): Loc | null => {
+    const gid = spareIdOf(id)
+    if (gid) return { day: SPARE, index: -1, group: gid }
     if (id.startsWith('day-')) return { day: Number(id.slice(4)), index: -1 }
     if (isChip(id)) return { day: Number(id.slice(5)), index: -1 }
     for (let d = 0; d < trip.days.length; d++) {
       const idx = trip.days[d].activityIds.indexOf(id)
       if (idx >= 0) return { day: d, index: idx }
     }
-    const si = spare.indexOf(id)
-    if (si >= 0) return { day: SPARE, index: si }
+    for (const g of groups) {
+      const si = g.activityIds.indexOf(id)
+      if (si >= 0) return { day: SPARE, index: si, group: g.id }
+    }
     return null
   }
+  const overKey = (l: Loc | null) => (!l ? null : l.day === SPARE ? spareColId(l.group!) : dayId(l.day))
 
   const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id))
 
-  const onDragOver = (e: DragOverEvent) => {
-    const over = e.over ? locate(String(e.over.id)) : null
-    setOverDay(over ? over.day : null)
-  }
+  const onDragOver = (e: DragOverEvent) => setOver(overKey(e.over ? locate(String(e.over.id)) : null))
 
   const onDragEnd = (e: DragEndEvent) => {
     setActiveId(null)
-    setOverDay(null)
+    setOver(null)
     if (!e.over) return
     const id = String(e.active.id)
     const from = locate(id)
@@ -122,10 +128,13 @@ export default function Board() {
     if (!from || !to) return
 
     if (to.day === SPARE) {
-      // Into the spare list: loses its time slot; within it, just reorders.
-      if (from.day === SPARE && from.index === to.index) return
-      moveToSpare(id, to.index < 0 ? undefined : to.index)
-      if (e.over.id === SPARE_CHIP) setTimeout(() => scrollToDay(boardRef.current, trip.days.length), 50)
+      // Into a spare block: loses its time slot; within the same block, just reorders.
+      if (from.day === SPARE && from.group === to.group && from.index === to.index) return
+      moveToSpare(id, to.group, to.index < 0 ? undefined : to.index)
+      if (String(e.over.id).startsWith('chip-spare:')) {
+        const gi = groups.findIndex((g) => g.id === to.group)
+        setTimeout(() => scrollToDay(boardRef.current, trip.days.length + Math.max(0, gi)), 50)
+      }
       return
     }
 
@@ -162,18 +171,23 @@ export default function Board() {
       onDragEnd={onDragEnd}
       onDragCancel={() => {
         setActiveId(null)
-        setOverDay(null)
+        setOver(null)
       }}
     >
       <div className="board-wrap">
         <DayNav trip={trip} boardRef={boardRef} dragging={!!activeId} />
         <div className="board" ref={boardRef}>
           {trip.days.map((_, i) => (
-            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={overDay === i} today={i === today} onAi={() => setAiDay(i)} />
+            <DayColumn key={trip.days[i].id} trip={trip} index={i} isOver={over === dayId(i)} today={i === today} onAi={() => setAiDay(i)} />
           ))}
-          <SpareColumn trip={trip} isOver={overDay === SPARE} />
           <button className="add-day" onClick={addDay}>
             ＋ 新增一天
+          </button>
+          {groups.map((g, gi) => (
+            <SpareColumn key={g.id} trip={trip} group={g} position={gi} count={groups.length} isOver={over === spareColId(g.id)} />
+          ))}
+          <button className="add-day add-spare-group" onClick={() => addSpareGroup()} title="再開一個備用區塊：依國家、地區或日期分開放">
+            📌 新增備用區塊
           </button>
         </div>
       </div>
@@ -210,6 +224,7 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
   const [visible, setVisible] = useState<Set<number>>(new Set([0]))
   const chipsRef = useRef<HTMLDivElement>(null)
   const today = todayIndex(trip)
+  const groups = spareGroupsOf(trip)
 
   useEffect(() => {
     const board = boardRef.current
@@ -229,7 +244,7 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
     )
     cols.forEach((c) => io.observe(c))
     return () => io.disconnect()
-  }, [boardRef, trip.days.length, (trip.spare?.length ?? 0) > 0])
+  }, [boardRef, trip.days.length, groups.length])
 
   // Keep the first visible day's chip in view when the chip row itself overflows.
   const first = visible.size ? Math.min(...visible) : 0
@@ -242,8 +257,8 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
 
   const goTo = (i: number) => scrollToDay(boardRef.current, i)
   const last = visible.size ? Math.max(...visible) : 0
-  // Columns: the days plus the 備用景點 column at the end.
-  const n = trip.days.length + 1
+  // Columns: the days plus one per 備用景點 block.
+  const n = trip.days.length + groups.length
   // Arrows page by however many days fit on screen (one on phones).
   const step = Math.max(1, visible.size)
 
@@ -256,7 +271,10 @@ function DayNav({ trip, boardRef, dragging }: { trip: Trip; boardRef: React.RefO
         {trip.days.map((d, i) => (
           <DayChip key={d.id} trip={trip} index={i} on={visible.has(i)} current={i === first} today={i === today} onClick={() => goTo(i)} />
         ))}
-        <SpareChip count={trip.spare?.length ?? 0} on={visible.has(n - 1)} current={first === n - 1} onClick={() => goTo(n - 1)} />
+        {groups.map((g, gi) => {
+          const ci = trip.days.length + gi
+          return <SpareChip key={g.id} group={g} on={visible.has(ci)} current={first === ci} onClick={() => goTo(ci)} />
+        })}
       </div>
       <span className="drop-hint" aria-hidden={!dragging}>
         放到日期 → 移到該天 · 放到備用 → 取消時間
@@ -288,44 +306,77 @@ function DayChip({ trip, index: i, on, current, today, onClick }: { trip: Trip; 
   )
 }
 
-/** Chip for the 備用景點 column: jump to it, or drop a card on it to take the card off the schedule. */
-function SpareChip({ count, on, current, onClick }: { count: number; on: boolean; current: boolean; onClick: () => void }) {
-  const { setNodeRef, isOver } = useDroppable({ id: SPARE_CHIP })
+/** Chip for one 備用景點 block: jump to it, or drop a card on it to take the card off the schedule. */
+function SpareChip({ group, on, current, onClick }: { group: SpareGroup; on: boolean; current: boolean; onClick: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: spareChipId(group.id) })
+  const count = group.activityIds.length
   return (
     <button
       ref={setNodeRef}
       className={`day-chip spare-chip ${on ? 'on' : ''} ${isOver ? 'drop' : ''}`}
       onClick={onClick}
       aria-current={current ? 'true' : undefined}
-      title="備用景點：不排時間的候選地點（把活動拖到這裡會取消它的時間）"
+      title={`備用區塊「${group.name}」：不排時間的候選地點（把活動拖到這裡會取消它的時間）`}
     >
-      <b>📌</b>
-      <span>備用{count > 0 ? ` ${count}` : ''}</span>
+      <b>📌{count > 0 ? ` ${count}` : ''}</b>
+      <span className="spare-chip-name">{group.name}</span>
     </button>
   )
 }
 
 /**
- * 備用景點 column: candidates without a time slot. Drag one onto a day (or its chip) to schedule it,
- * drag a day's card here to take it off the schedule.
+ * One 備用景點 block as a column: candidates without a time slot, grouped however the traveller
+ * likes (a region, a country, a date range). Drag one onto a day (or its chip) to schedule it, drag
+ * a day's card here to take it off the schedule. The name is edited in place.
  */
-function SpareColumn({ trip, isOver }: { trip: Trip; isOver: boolean }) {
-  const { addSpare } = useStore()
-  const spares = spareActivities(trip)
-  const { setNodeRef } = useDroppable({ id: SPARE_ID })
+function SpareColumn({ trip, group, position, count, isOver }: { trip: Trip; group: SpareGroup; position: number; count: number; isOver: boolean }) {
+  const { addSpare, renameSpareGroup, removeSpareGroup, moveSpareGroup } = useStore()
+  const spares = spareGroupActivities(trip, group)
+  const { setNodeRef } = useDroppable({ id: spareColId(group.id) })
+  // The default block shown while a trip has none is virtual: nothing to remove yet.
+  const real = Boolean(trip.spareGroups?.some((g) => g.id === group.id))
+  const onRemove = () => {
+    if (spares.length && !confirm(`刪除備用區塊「${group.name}」及其中 ${spares.length} 個備用景點？`)) return
+    removeSpareGroup(group.id)
+  }
   return (
-    <section className={`day-col spare-col ${isOver ? 'over' : ''}`} style={{ '--i': trip.days.length } as React.CSSProperties}>
+    <section className={`day-col spare-col ${isOver ? 'over' : ''}`} style={{ '--i': trip.days.length + position } as React.CSSProperties}>
       <header className="day-head">
         <div className="title">
           <span className="day-badge" aria-hidden="true">
             <small>SPARE</small>📌
           </span>
           <span className="day-title">
-            <span className="day-name">備用景點</span>
+            <input
+              className="spare-name"
+              value={group.name}
+              onChange={(e) => renameSpareGroup(group.id, e.target.value)}
+              onBlur={(e) => !e.target.value.trim() && renameSpareGroup(group.id, DEFAULT_SPARE_NAME)}
+              placeholder="區塊名稱（地區、國家、日期…）"
+              aria-label="備用區塊名稱"
+              title="點一下改名"
+            />
             <span className="day-date">不排時間 · {spares.length} 個</span>
           </span>
+          <span className="day-tools">
+            {count > 1 && (
+              <>
+                <button className="btn sm ghost" onClick={() => moveSpareGroup(group.id, -1)} disabled={position === 0} title="往前移">
+                  ◀
+                </button>
+                <button className="btn sm ghost" onClick={() => moveSpareGroup(group.id, 1)} disabled={position === count - 1} title="往後移">
+                  ▶
+                </button>
+              </>
+            )}
+            {real && (
+              <button className="btn sm ghost remove" onClick={onRemove} title="刪除這個備用區塊">
+                ✕
+              </button>
+            )}
+          </span>
         </div>
-        <p className="spare-hint">拖到某一天就會排進去；行程有變時從這裡挑。AI 協作加點時也會優先選這些。</p>
+        {position === 0 && <p className="spare-hint">拖到某一天就會排進去；行程有變時從這裡挑。可依地區、國家或日期再開新的區塊。</p>}
       </header>
       <SortableContext items={spares.map((a) => a.id)} strategy={verticalListSortingStrategy}>
         <div className="day-list" ref={setNodeRef}>
@@ -336,7 +387,7 @@ function SpareColumn({ trip, isOver }: { trip: Trip; isOver: boolean }) {
         </div>
       </SortableContext>
       <footer className="day-foot">
-        <button className="btn sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => addSpare()}>
+        <button className="btn sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => addSpare(undefined, group.id)}>
           ＋ 新增備用景點
         </button>
       </footer>

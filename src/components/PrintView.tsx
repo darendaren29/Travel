@@ -1,6 +1,6 @@
 import { useCurrentTrip } from '../store'
 import { CATEGORY_META } from '../types'
-import { addDays, dayActivities, dayCost, formatDate, formatMoney, spareActivities, tripTotalCost } from '../utils'
+import { addDays, dayActivities, dayCost, formatDate, formatMoney, spareGroupActivities, spareGroupsOf, tripTotalCost } from '../utils'
 
 /** Rendered only when printing (see @media print in styles.css). */
 export default function PrintView() {
@@ -48,33 +48,37 @@ export default function PrintView() {
           </div>
         )
       })}
-      {spareActivities(trip).length > 0 && (
-        <div>
-          <h2>📌 備用景點（未排時間）</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>活動</th>
-                <th>地點</th>
-                <th style={{ width: 90 }}>花費</th>
-                <th>備註</th>
-              </tr>
-            </thead>
-            <tbody>
-              {spareActivities(trip).map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    {CATEGORY_META[a.category].icon} {a.title}
-                  </td>
-                  <td>{a.location ?? ''}</td>
-                  <td>{a.cost ? formatMoney(a.cost, trip.currency) : ''}</td>
-                  <td>{a.notes ?? ''}</td>
+      {spareGroupsOf(trip).map((g) => {
+        const acts = spareGroupActivities(trip, g)
+        if (!acts.length) return null
+        return (
+          <div key={g.id}>
+            <h2>📌 備用景點 · {g.name}（未排時間）</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>活動</th>
+                  <th>地點</th>
+                  <th style={{ width: 90 }}>花費</th>
+                  <th>備註</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {acts.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      {CATEGORY_META[a.category].icon} {a.title}
+                    </td>
+                    <td>{a.location ?? ''}</td>
+                    <td>{a.cost ? formatMoney(a.cost, trip.currency) : ''}</td>
+                    <td>{a.notes ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      })}
     </div>
   )
 }

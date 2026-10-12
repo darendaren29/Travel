@@ -1,7 +1,7 @@
 import { FunctionsError, httpsCallable } from 'firebase/functions'
 import { functions } from './firebase'
 import { CLAUDE_DAILY_LIMIT, CLAUDE_DAY_DAILY_LIMIT, type AiDay, type AiTrip, type DayActivityIn, type DayRequest, type ItineraryRequest } from './aiPrompt'
-import { CATEGORIES, type Activity, type Category, type Trip } from './types'
+import { CATEGORIES, DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME, type Activity, type Category, type Trip } from './types'
 import { longId, spareActivities, toMinutes, toTime, uid } from './utils'
 
 export type { ItineraryRequest, AiTrip } from './aiPrompt'
@@ -124,7 +124,7 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
     budget: req.budget,
     days,
     activities,
-    ...(spare.length ? { spare } : {}),
+    ...(spare.length ? { spareGroups: [{ id: DEFAULT_SPARE_GROUP, name: DEFAULT_SPARE_NAME, activityIds: spare }] } : {}),
     updatedAt: Date.now(),
   }
 }

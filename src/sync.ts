@@ -37,6 +37,8 @@ const tripWrite = (trip: Trip): Record<string, unknown> => {
     ...rest,
     ...(members?.length ? { members: arrayUnion(...members) } : {}),
     legs: big || !legs ? deleteField() : legs,
+    // The legacy single spare list is replaced by blocks; clear it so no stale copy lingers remotely.
+    ...(trip.spareGroups && !trip.spare ? { spare: deleteField() } : {}),
   }
 }
 

@@ -1,5 +1,5 @@
-import type { Activity, Trip } from './types'
-import { DAY_COLORS } from './types'
+import type { Activity, SpareGroup, Trip } from './types'
+import { DAY_COLORS, DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME } from './types'
 
 export const uid = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -86,9 +86,22 @@ export const findConflicts = (activities: Activity[]): Set<string> => {
   return conflicts
 }
 
-/** 備用景點 (no time slot), in their kept order. */
-export const spareActivities = (trip: Trip): Activity[] =>
-  (trip.spare ?? []).map((id) => trip.activities[id]).filter((a): a is Activity => Boolean(a))
+/**
+ * 備用景點 blocks of a trip for display: the stored groups, else the legacy single list as one
+ * group, else one empty default block (so there is always somewhere to drop a card).
+ */
+export const spareGroupsOf = (trip: Trip): SpareGroup[] => {
+  if (trip.spareGroups?.length) return trip.spareGroups
+  if (trip.spare?.length) return [{ id: DEFAULT_SPARE_GROUP, name: DEFAULT_SPARE_NAME, activityIds: trip.spare }]
+  return [{ id: DEFAULT_SPARE_GROUP, name: DEFAULT_SPARE_NAME, activityIds: [] }]
+}
+
+/** Activities of one 備用景點 block, dropping dangling ids. */
+export const spareGroupActivities = (trip: Trip, group: SpareGroup): Activity[] =>
+  group.activityIds.map((id) => trip.activities[id]).filter((a): a is Activity => Boolean(a))
+
+/** All 備用景點 (no time slot), block by block. */
+export const spareActivities = (trip: Trip): Activity[] => spareGroupsOf(trip).flatMap((g) => spareGroupActivities(trip, g))
 
 /** Every activity that is actually on a day, in day order (spares are not plans, so not counted). */
 export const plannedActivities = (trip: Trip): Activity[] => trip.days.flatMap((_, i) => dayActivities(trip, i))
