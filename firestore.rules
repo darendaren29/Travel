@@ -45,5 +45,14 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
     }
+
+    // Claude results, written by the Cloud Function under a random request id so a page whose
+    // connection dropped mid-call can still collect the answer. Only the requester reads or
+    // deletes one; a missing id reads as "not ready yet".
+    match /aiResults/{requestId} {
+      allow get: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid);
+      allow list, create, update: if false;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
   }
 }

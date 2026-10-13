@@ -1,5 +1,6 @@
 import { FunctionsError, httpsCallable } from 'firebase/functions'
-import { functions } from './firebase'
+import { doc, deleteDoc, getDoc } from 'firebase/firestore'
+import { db, functions } from './firebase'
 import {
   CLAUDE_DAILY_LIMIT,
   CLAUDE_DAY_DAILY_LIMIT,
@@ -27,15 +28,67 @@ export const describeAiError = (e: unknown): string => (e instanceof FunctionsEr
 /** Raw error line for the "技術細節" disclosure. */
 export const aiErrorDetails = (e: unknown): string[] => (e instanceof FunctionsError ? [`Claude · ${e.code}：${e.message}`] : [msgOf(e)])
 
-// One callable serves both jobs (`kind`), so no second function needs its own public-invoker setup.
-const claudeCall = httpsCallable<ItineraryRequest & { kind?: 'trip' }, { trip: AiTrip; model: string }>(functions, 'claudeItinerary', {
-  // Matches the function's timeoutSeconds; long trips can take a few minutes.
-  timeout: 540_000,
-})
+/** The request never got its answer back (connection dropped / page left), but the function may still finish. */
+const isLostConnection = (e: unknown) =>
+  e instanceof FunctionsError &&
+  ((e.code === 'functions/internal' && /^(internal( \[\d+\])?|Response is not valid JSON object\.?)$/i.test(e.message)) || e.code === 'functions/unavailable' || e.code === 'functions/deadline-exceeded')
 
-/** Ask Claude for a whole itinerary. */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Wait for the function's stored copy of a result (see aiResults in firestore.rules). */
+async function collectResult<R>(requestId: string, waitMs: number): Promise<R | null> {
+  const ref = doc(db, 'aiResults', requestId)
+  const until = Date.now() + waitMs
+  while (Date.now() < until) {
+    try {
+      const snap = await getDoc(ref)
+      if (snap.exists()) {
+        void deleteDoc(ref).catch(() => {})
+        return (snap.data() as { result: R }).result
+      }
+    } catch {
+      // offline for a moment: keep trying
+    }
+    await sleep(4000)
+  }
+  return null
+}
+
+/** Keep the phone's screen on while Claude works, so the page isn't suspended mid-call. */
+async function keepAwake(): Promise<() => void> {
+  try {
+    const lock = await (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request('screen')
+    return () => void lock?.release().catch(() => {})
+  } catch {
+    return () => {}
+  }
+}
+
+/**
+ * Call the Claude function. The function also stores its answer under a random request id, so when
+ * the connection drops (screen locked, app switched, flaky network) the result is still collected
+ * instead of being lost after the quota was spent.
+ */
+async function callClaude<Req extends object, R>(data: Req, timeout: number): Promise<R> {
+  const requestId = longId()
+  const call = httpsCallable<Req & { requestId: string }, R>(functions, 'claudeItinerary', { timeout })
+  const release = await keepAwake()
+  try {
+    return (await call({ ...data, requestId })).data
+  } catch (e) {
+    if (!isLostConnection(e)) throw e
+    // The function keeps running server-side: give it up to its own time limit to finish.
+    const found = await collectResult<R>(requestId, timeout)
+    if (found) return found
+    throw e
+  } finally {
+    release()
+  }
+}
+
+/** Ask Claude for a whole itinerary (the function's timeout matches; long trips can take minutes). */
 export async function generateItinerary(req: ItineraryRequest): Promise<Trip> {
-  const { data } = await claudeCall({ ...req, kind: 'trip' })
+  const data = await callClaude<ItineraryRequest & { kind: 'trip' }, { trip: AiTrip; model: string }>({ ...req, kind: 'trip' }, 540_000)
   return toTrip(data.trip, req)
 }
 
@@ -72,7 +125,7 @@ function describeClaudeError(e: FunctionsError): string {
   }
   // No reason at all: the request never reached our code (Cloud Run refused it, the function is
   // missing, or the network dropped). The browser only sees "internal" / "not-found" then.
-  if (e.code === 'functions/not-found' || (e.code === 'functions/internal' && /^internal$/i.test(e.message)))
+  if (e.code === 'functions/not-found' || (e.code === 'functions/internal' && /^(internal( \[\d+\])?|Response is not valid JSON object\.?)$/i.test(e.message)))
     return '連不到 Claude 雲端函式：可能沒有開放呼叫權限（Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用），或網路中斷。請稍後再試，持續發生請把「技術細節」截圖給我。'
   if (e.code === 'functions/deadline-exceeded') return 'Claude 花太久沒有回應，請減少天數再試。'
   return e.message
@@ -150,7 +203,6 @@ export function toTrip(raw: AiTrip, req: ItineraryRequest): Trip {
 // AI co-editing of one day
 // ---------------------------------------------------------------------------
 
-const claudeDayCall = httpsCallable<DayRequest & { kind: 'day' }, { day: AiDay; model: string }>(functions, 'claudeItinerary', { timeout: 300_000 })
 
 /** An activity as sent to the model. */
 const toIn = (a: Activity): DayActivityIn => ({
@@ -171,7 +223,6 @@ const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padS
 // AI co-editing of a 備用景點 block
 // ---------------------------------------------------------------------------
 
-const claudeSpareCall = httpsCallable<SpareRequest & { kind: 'spare' }, { spares: AiSpare; model: string }>(functions, 'claudeItinerary', { timeout: 300_000 })
 
 /** The request describing block `group` with `current` as its spares (the live block, or a pending proposal). */
 export function spareRequest(trip: Trip, group: SpareGroup, current: Activity[], instruction: string, history: string[]): SpareRequest {
@@ -195,7 +246,7 @@ export function spareRequest(trip: Trip, group: SpareGroup, current: Activity[],
 
 /** Ask the AI to revise a 備用景點 block. Returns the explanation and the proposed spares (not yet applied). */
 export async function reviseSpares(req: SpareRequest, current: Activity[]): Promise<{ summary: string; activities: Activity[] }> {
-  const raw = (await claudeSpareCall({ ...req, kind: 'spare' })).data.spares
+  const raw = (await callClaude<SpareRequest & { kind: 'spare' }, { spares: AiSpare; model: string }>({ ...req, kind: 'spare' }, 300_000)).spares
   return { summary: (raw.summary ?? '').trim(), activities: toSpareProposal(raw, current) }
 }
 
@@ -243,7 +294,7 @@ export function dayRequest(trip: Trip, dayIndex: number, current: Activity[], in
 
 /** Ask the AI to revise a day. Returns the explanation and the proposed activities (not yet applied). */
 export async function reviseDay(req: DayRequest, current: Activity[], spares: Activity[] = []): Promise<{ summary: string; activities: Activity[] }> {
-  const raw = (await claudeDayCall({ ...req, kind: 'day' })).data.day
+  const raw = (await callClaude<DayRequest & { kind: 'day' }, { day: AiDay; model: string }>({ ...req, kind: 'day' }, 300_000)).day
   return { summary: (raw.summary ?? '').trim(), activities: toDayProposal(raw, current, spares) }
 }
 

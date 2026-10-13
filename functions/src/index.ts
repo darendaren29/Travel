@@ -284,24 +284,37 @@ export const claudeItinerary = onCall(
     if (!uid) throw new HttpsError('unauthenticated', 'sign in first', { reason: 'unauthenticated' })
     const k = (request.data as { kind?: unknown } | null)?.kind
     const kind: Kind = k === 'day' ? 'day' : k === 'spare' ? 'spare' : 'trip'
+    const rid = (request.data as { requestId?: unknown } | null)?.requestId
+    const requestId = typeof rid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(rid) ? rid : null
+
+    // Keep a copy of the answer for the requester: phones often drop a 30–60 s connection (screen
+    // locked, app switched) and the page then collects the result from Firestore instead.
+    const keep = async <T extends object>(result: T): Promise<T> => {
+      if (requestId)
+        await getFirestore()
+          .doc(`aiResults/${requestId}`)
+          .create({ uid, kind, result, createdAt: Date.now() })
+          .catch((e) => logger.warn('could not keep result', { uid, kind, error: String(e) }))
+      return result
+    }
 
     try {
       if (kind === 'spare') {
         const req = parseSpareRequest(request.data)
         await takeDailySlot(uid, kind)
         const spares = await askClaude<AiSpare>(SPARE_SYSTEM_PROMPT, buildSparePrompt(req), SPARE_SCHEMA, 16000, uid, kind)
-        return { spares, model: MODEL }
+        return keep({ spares, model: MODEL })
       }
       if (kind === 'day') {
         const req = parseDayRequest(request.data)
         await takeDailySlot(uid, kind)
         const day = await askClaude<AiDay>(DAY_SYSTEM_PROMPT, buildDayPrompt(req), DAY_SCHEMA, 16000, uid, kind)
-        return { day, model: MODEL }
+        return keep({ day, model: MODEL })
       }
       const req = parseRequest(request.data)
       await takeDailySlot(uid, kind)
       const trip = await askClaude<AiTrip>(SYSTEM_PROMPT, buildPrompt(req), TRIP_SCHEMA, 64000, uid, kind)
-      return { trip, model: MODEL }
+      return keep({ trip, model: MODEL })
     } catch (e) {
       const err = toHttpsError(e)
       if (!(e instanceof HttpsError)) logger.error('claude failed', { uid, kind, error: err.message })
