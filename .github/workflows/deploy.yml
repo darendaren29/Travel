@@ -88,6 +88,16 @@ jobs:
             exit 1
           fi
 
+      # What the CDN now serves: build id and cache headers (an old cached page is the usual reason
+      # a fix "did not help").
+      - name: Check hosting
+        continue-on-error: true
+        run: |
+          H=https://travel-planner-2734f.web.app
+          echo "::notice title=Hosting version.json::$(curl -s --max-time 20 "$H/version.json?t=$(date +%s)" | head -c 200)"
+          echo "::notice title=Hosting index cache-control::$(curl -sI --max-time 20 "$H/" | grep -i '^cache-control' | tr -d '\r')"
+          echo "::notice title=Hosting version cache-control::$(curl -sI --max-time 20 "$H/version.json" | grep -i '^cache-control' | tr -d '\r')"
+
       # Is the function actually callable from the web app, and what did it fail on lately?
       # A Cloud Run service that lost its public invoker answers 403 before our code runs, which the
       # browser reports only as a CORS / "internal" error.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { signIn } from '../auth'
 import { inviteUrl, isInAppBrowser } from '../share'
+import { reloadApp, useUpdateAvailable } from '../update'
 
 /** Shown after opening an invite link while signed out: explains what to do, or how to leave an in-app browser. */
 export function JoinBanner() {
@@ -45,6 +46,24 @@ export function JoinBanner() {
           </button>
         </>
       )}
+    </div>
+  )
+}
+
+/** "A newer version is deployed" bar; stays until the user reloads. */
+export function UpdateBar() {
+  const ready = useUpdateAvailable()
+  const [hidden, setHidden] = useState(false)
+  if (!ready || hidden) return null
+  return (
+    <div className="undo-bar update-bar" role="status">
+      <span>🆕 有新版本</span>
+      <button className="btn sm" onClick={reloadApp}>
+        重新整理
+      </button>
+      <button className="btn sm ghost" onClick={() => setHidden(true)} aria-label="稍後">
+        ✕
+      </button>
     </div>
   )
 }

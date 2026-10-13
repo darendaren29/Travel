@@ -9,7 +9,7 @@ import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
 import ViewBoundary from './components/ViewBoundary'
 import { useRouteSync } from './useRouteSync'
-import { InviteGate, JoinBanner, NoticeBar } from './components/Banners'
+import { InviteGate, JoinBanner, NoticeBar, UpdateBar } from './components/Banners'
 import { useState } from 'react'
 
 export default function App() {
@@ -57,6 +57,7 @@ export default function App() {
         {selected && (view === 'board' || view === 'map') && <ActivityEditor />}
       </div>
       <NoticeBar />
+      <UpdateBar />
       <PrintView />
     </div>
   )

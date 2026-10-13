@@ -76,7 +76,7 @@ export default function Header() {
     const md = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`
     return (
       <header className="header compact">
-        <span className="brand" title="旅程手帳">
+        <span className="brand" title={`旅程手帳 · 版本 ${__BUILD_ID__}`}>
           <Logo />
         </span>
         <div className="compact-trip">
@@ -96,7 +96,7 @@ export default function Header() {
 
   return (
     <header className="header">
-      <div className="brand">
+      <div className="brand" title={`版本 ${__BUILD_ID__}`}>
         <Logo />
         <span className="name">
           旅程手帳<small>Trip Planner · Par Avion</small>
