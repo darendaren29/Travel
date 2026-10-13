@@ -114,7 +114,8 @@ jobs:
               echo "::error title=Claude function is not publicly callable::Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用 (could not fix automatically: $(printf '%s' "$out" | tail -n 2 | tr '\n' ' ' | cut -c1-300))"
             fi
           fi
-          # Recent warnings/errors from the function (messages only), newest first.
-          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="claudeitinerary" AND severity>=WARNING' \
-            --project $P --freshness=3d --limit=8 --format='value(timestamp,severity,jsonPayload.message,jsonPayload.error,textPayload)' 2>&1 \
-            | cut -c1-600 | while IFS= read -r line; do [ -n "$line" ] && echo "::warning title=Claude function log::$line"; done || true
+          # Recent calls (status, latency) and warnings/errors from the function, newest first.
+          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="claudeitinerary" AND (severity>=WARNING OR jsonPayload.message="claude" OR httpRequest.requestMethod="POST")' \
+            --project $P --freshness=3d --limit=12 \
+            --format='value(timestamp,severity,httpRequest.status,httpRequest.latency,jsonPayload.message,jsonPayload.kind,jsonPayload.stop,jsonPayload.error,textPayload)' 2>&1 \
+            | cut -c1-600 | while IFS= read -r line; do [ -n "$line" ] && echo "::notice title=Claude function log::$line"; done || true
