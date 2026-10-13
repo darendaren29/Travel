@@ -4,3 +4,6 @@ dist
 .DS_Store
 *.tsbuildinfo
 functions/lib
+
+# local logs (dev server etc.)
+*.log
