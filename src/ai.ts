@@ -63,10 +63,17 @@ function describeClaudeError(e: FunctionsError): string {
       return 'Claude 回傳的內容不完整（行程可能太長），請減少天數或分段產生。'
     case 'unauthenticated':
       return '請先登入。'
+    case 'bad-request':
+      return `請求內容不完整：${e.message}`
+    case 'api-error':
+      return `Claude API 回傳錯誤：${e.message}`
+    case 'unknown':
+      return `Claude 雲端函式執行時發生錯誤：${e.message}`
   }
-  // No reason attached: the function is missing (not deployed) or crashed before answering.
-  if (e.code === 'functions/not-found' || e.code === 'functions/internal')
-    return 'Claude 雲端函式無法呼叫：可能尚未部署，或沒有開放呼叫權限（Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用）。'
+  // No reason at all: the request never reached our code (Cloud Run refused it, the function is
+  // missing, or the network dropped). The browser only sees "internal" / "not-found" then.
+  if (e.code === 'functions/not-found' || (e.code === 'functions/internal' && /^internal$/i.test(e.message)))
+    return '連不到 Claude 雲端函式：可能沒有開放呼叫權限（Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用），或網路中斷。請稍後再試，持續發生請把「技術細節」截圖給我。'
   if (e.code === 'functions/deadline-exceeded') return 'Claude 花太久沒有回應，請減少天數再試。'
   return e.message
 }

@@ -87,3 +87,34 @@ jobs:
               | while IFS= read -r line; do echo "::error::${line:0:900}"; done
             exit 1
           fi
+
+      # Is the function actually callable from the web app, and what did it fail on lately?
+      # A Cloud Run service that lost its public invoker answers 403 before our code runs, which the
+      # browser reports only as a CORS / "internal" error.
+      - name: Check Cloud Function
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          [ -z "$ANTHROPIC_API_KEY" ] && exit 0
+          P=travel-planner-2734f
+          U=https://asia-east1-$P.cloudfunctions.net/claudeItinerary
+          gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet >/dev/null 2>&1 || true
+          probe() { curl -s -o "$RUNNER_TEMP/probe.txt" -w '%{http_code}' -X POST "$U" -H 'Content-Type: application/json' -d '{"data":{"kind":"spare"}}' --max-time 60; }
+          code=$(probe)
+          if [ "$code" = "401" ] && grep -q 'sign in first' "$RUNNER_TEMP/probe.txt"; then
+            echo "::notice title=Claude function::reachable (unauthenticated call answered by the function: HTTP 401)"
+          else
+            echo "::warning title=Claude function::HTTP $code before reaching the function: $(head -c 200 "$RUNNER_TEMP/probe.txt" | tr '\n' ' ')"
+            # Restore public invocation (the function still checks the Firebase sign-in itself).
+            if out=$(gcloud run services add-iam-policy-binding claudeitinerary --region=asia-east1 --member=allUsers --role=roles/run.invoker --project $P --quiet 2>&1); then
+              sleep 20
+              echo "::notice title=Claude function::public invoker re-applied; now HTTP $(probe)"
+            else
+              echo "::error title=Claude function is not publicly callable::Cloud Run → claudeitinerary → 安全性 → 允許未經驗證的叫用 (could not fix automatically: $(printf '%s' "$out" | tail -n 2 | tr '\n' ' ' | cut -c1-300))"
+            fi
+          fi
+          # Recent warnings/errors from the function (messages only), newest first.
+          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="claudeitinerary" AND severity>=WARNING' \
+            --project $P --freshness=3d --limit=8 --format='value(timestamp,severity,jsonPayload.message,jsonPayload.error,textPayload)' 2>&1 \
+            | cut -c1-600 | while IFS= read -r line; do [ -n "$line" ] && echo "::warning title=Claude function log::$line"; done || true
