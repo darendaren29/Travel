@@ -57,9 +57,15 @@ export const todayIndex = (trip: Pick<Trip, 'startDate' | 'days'>, now = new Dat
 export const formatDate = (d: Date): string =>
   `${d.getMonth() + 1}/${d.getDate()} (${WEEKDAYS[d.getDay()]})`
 
-/** "JPY 1,200"; cents are shown only when there are any ("USD 12.5"). */
-export const formatMoney = (n: number, currency: string): string =>
-  `${currency} ${(Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+/** Currencies that are not written with cents in practice; everything else shows up to 2 decimals when there are any. */
+const ZERO_DECIMAL = new Set(['TWD', 'JPY', 'KRW', 'VND', 'IDR', 'HUF', 'CLP', 'ISK', 'PHP', 'INR'])
+
+/** "JPY 1,200"; "USD 12.5" (cents only for currencies that use them, and only when there are any). */
+export const formatMoney = (n: number, currency: string): string => {
+  const digits = ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2
+  const v = Math.round(n * 10 ** digits) / 10 ** digits
+  return `${currency} ${v.toLocaleString(undefined, { maximumFractionDigits: digits })}`
+}
 
 export const dayColor = (index: number): string => DAY_COLORS[index % DAY_COLORS.length]
 

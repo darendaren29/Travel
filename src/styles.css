@@ -2120,18 +2120,56 @@ textarea {
   gap: 5px;
 }
 
-.map-legend label {
+.legend-days {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* one toggle chip per day, in that day's route colour; off = outlined and dimmed */
+.legend-day {
+  position: relative;
+  display: inline-flex;
   gap: 7px;
   align-items: center;
   cursor: pointer;
   font-weight: 600;
+  padding: 3px 10px 3px 7px;
+  border: 1.5px solid var(--dc);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dc) 14%, var(--surface));
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  user-select: none;
 }
 
-.map-legend .sw {
-  width: 18px;
+.legend-day input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.legend-day:has(input:focus-visible) {
+  box-shadow: var(--ring);
+}
+
+.legend-day .sw {
+  width: 16px;
   height: 4px;
   border-radius: 1px;
+  background: var(--dc);
+}
+
+.legend-day.off {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.legend-day.off .sw {
+  background: var(--border-strong);
 }
 
 .basemap-select {
@@ -4001,11 +4039,47 @@ textarea {
     background: var(--border-strong);
   }
 
+  /* phones: one scrollable strip of day chips along the bottom instead of a tall list */
   .map-legend {
-    bottom: 12px;
+    bottom: 30px;
     left: 8px;
-    padding: 7px 9px;
+    right: 8px;
+    padding: 6px 8px;
     font-size: 11px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .map-legend::-webkit-scrollbar {
+    display: none;
+  }
+
+  .legend-days {
+    flex-direction: row;
+    gap: 5px;
+  }
+
+  .legend-day {
+    flex: none;
+    padding: 2px 8px 2px 6px;
+  }
+
+  .basemap-select {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px 0 0;
+    margin: 0;
+    border-bottom: 0;
+    border-right: 1.5px dashed var(--border-strong);
+  }
+
+  .basemap-select select {
+    max-width: 128px;
   }
 
   .budget {

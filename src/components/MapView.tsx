@@ -138,13 +138,15 @@ export default function MapView() {
               </select>
             </label>
           )}
-          {days.map((d) => (
-            <label key={d.index}>
-              <input type="checkbox" checked={!hidden.has(d.index)} onChange={() => toggleDay(d.index)} style={{ width: 'auto' }} />
-              <span className="sw" style={{ background: d.color }} />
-              {groupLabel(d)}
-            </label>
-          ))}
+          <div className="legend-days">
+            {days.map((d) => (
+              <label key={d.index} className={`legend-day ${hidden.has(d.index) ? 'off' : ''}`} style={{ '--dc': d.color } as React.CSSProperties} title={hidden.has(d.index) ? '顯示這天' : '隱藏這天'}>
+                <input type="checkbox" checked={!hidden.has(d.index)} onChange={() => toggleDay(d.index)} />
+                <span className="sw" />
+                {groupLabel(d)}
+              </label>
+            ))}
+          </div>
         </div>
       </div>
     </div>
