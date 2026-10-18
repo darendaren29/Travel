@@ -11,6 +11,7 @@ const VIEWS: { key: View; label: string; icon: string }[] = [
   { key: 'board', label: '行程', icon: '🗓️' },
   { key: 'map', label: '地圖', icon: '🗺️' },
   { key: 'budget', label: '預算', icon: '💰' },
+  { key: 'split', label: '分帳', icon: '🧾' },
   { key: 'docs', label: '票券', icon: '🎫' },
 ]
 

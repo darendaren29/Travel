@@ -1,11 +1,21 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEFAULT_SPARE_GROUP, DEFAULT_SPARE_NAME, type Activity, type AuthUser, type Leg, type SpareGroup, type Trip, type TripDoc } from './types'
+import {
+  DEFAULT_SPARE_GROUP,
+  DEFAULT_SPARE_NAME,
+  type Activity,
+  type AuthUser,
+  type Expense,
+  type Leg,
+  type SpareGroup,
+  type Trip,
+  type TripDoc,
+} from './types'
 import { sampleTrip } from './sample'
 import { duration, longId, spareGroupsOf, toMinutes, toTime, uid } from './utils'
 import type { BasemapKey } from './basemaps'
 
-export type View = 'board' | 'map' | 'budget' | 'docs'
+export type View = 'board' | 'map' | 'budget' | 'split' | 'docs'
 export type SyncState = 'off' | 'syncing' | 'synced' | 'error'
 export type RoutingState = 'idle' | 'loading' | 'error'
 
@@ -101,6 +111,15 @@ interface State {
   removeSpareGroup: (id: string) => void
   /** Move a block left (-1) or right (+1) among the blocks. */
   moveSpareGroup: (id: string, dir: -1 | 1) => void
+
+  // 分帳
+  addPerson: (name: string) => string
+  renamePerson: (id: string, name: string) => void
+  /** Fails (returns false) while expenses still mention the person. */
+  removePerson: (id: string) => boolean
+  addExpense: (e: Omit<Expense, 'id' | 'createdAt'>) => string
+  updateExpense: (id: string, patch: Partial<Omit<Expense, 'id'>>) => void
+  deleteExpense: (id: string) => void
   /** Replace day `dayIndex` with `activities` (AI co-editing); keeps an undo snapshot. */
   replaceDayActivities: (dayIndex: number, activities: Activity[], label: string) => void
   /** Replace 備用景點 block `groupId` with `activities` (AI co-editing); same undo as a day. */
@@ -671,6 +690,35 @@ export const useStore = create<State>()(
             if (i < 0 || j < 0 || j >= groups.length) return
             ;[groups[i], groups[j]] = [groups[j], groups[i]]
           }),
+
+        addPerson: (name) => {
+          const id = `p-${uid()}`
+          mutate((t) => (t.people = [...(t.people ?? []), { id, name: name.trim() || `旅伴 ${(t.people?.length ?? 0) + 1}` }]))
+          return id
+        },
+        renamePerson: (id, name) =>
+          mutate((t) => {
+            const p = t.people?.find((x) => x.id === id)
+            if (p) p.name = name
+          }),
+        removePerson: (id) => {
+          const trip = currentTrip(get())
+          if (!trip) return false
+          if ((trip.expenses ?? []).some((e) => e.paidBy === id || e.participants.includes(id))) return false
+          mutate((t) => (t.people = (t.people ?? []).filter((p) => p.id !== id)))
+          return true
+        },
+        addExpense: (e) => {
+          const id = `x-${uid()}`
+          mutate((t) => (t.expenses = [...(t.expenses ?? []), { ...e, id, createdAt: Date.now() }]))
+          return id
+        },
+        updateExpense: (id, patch) =>
+          mutate((t) => {
+            const e = t.expenses?.find((x) => x.id === id)
+            if (e) Object.assign(e, patch)
+          }),
+        deleteExpense: (id) => mutate((t) => (t.expenses = (t.expenses ?? []).filter((x) => x.id !== id))),
       }
     },
     {

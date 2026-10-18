@@ -87,6 +87,40 @@ export interface Trip {
   legs?: Record<string, Leg>
   /** Uploaded tickets / bookings (files live in Firebase Storage). */
   docs?: Record<string, TripDoc>
+  /** 分帳: the travellers money is split between (not tied to accounts). */
+  people?: Person[]
+  /** 分帳: who paid what, shared by whom; plus settlement transfers. */
+  expenses?: Expense[]
+}
+
+/** A traveller in the 分帳 (bill splitting); a plain name, so people without an account count too. */
+export interface Person {
+  id: string
+  name: string
+}
+
+/**
+ * One shared cost (`kind: 'expense'`) or one repayment (`kind: 'transfer'`, paid by the debtor to
+ * the single participant). Amounts are in the trip currency.
+ */
+export interface Expense {
+  id: string
+  kind: 'expense' | 'transfer'
+  title: string
+  amount: number
+  /** Person who paid. */
+  paidBy: string
+  /** Who shares the cost (an expense) or who received the money (a transfer: exactly one). */
+  participants: string[]
+  /** Custom amounts per participant; absent = split equally. */
+  shares?: Record<string, number>
+  /** YYYY-MM-DD */
+  date: string
+  category: Category
+  note?: string
+  /** Activity this came from, when added from the itinerary. */
+  activityId?: string
+  createdAt: number
 }
 
 export type DocKind = 'flight' | 'lodging' | 'ticket' | 'other'

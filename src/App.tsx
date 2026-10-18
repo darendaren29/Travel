@@ -4,6 +4,7 @@ import TripBar from './components/TripBar'
 import Board from './components/Board'
 import MapView from './components/MapView'
 import BudgetView from './components/BudgetView'
+import SplitView from './components/SplitView'
 import DocsView from './components/DocsView'
 import ActivityEditor from './components/ActivityEditor'
 import PrintView from './components/PrintView'
@@ -51,6 +52,7 @@ export default function App() {
             {view === 'board' && <Board />}
             {view === 'map' && <MapView />}
             {view === 'budget' && <BudgetView />}
+            {view === 'split' && <SplitView />}
             {view === 'docs' && <DocsView />}
           </ViewBoundary>
         </div>
