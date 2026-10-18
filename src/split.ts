@@ -36,6 +36,25 @@ export const shareOf = (e: Expense): Record<string, number> => {
   return out
 }
 
+/** Currencies offered in the picker; the trip's own and any already used are added at the top. */
+export const COMMON_CURRENCIES = ['TWD', 'JPY', 'USD', 'EUR', 'KRW', 'CNY', 'HKD', 'THB', 'GBP', 'SGD', 'AUD', 'VND']
+
+/** Trip currency per unit of the expense's currency (1 when they are the same or no rate was given). */
+export const rateOf = (e: Pick<Expense, 'currency' | 'rate'>, tripCurrency: string): number =>
+  e.currency && e.currency !== tripCurrency && e.rate && e.rate > 0 ? e.rate : 1
+
+/** The expense's amount in the trip currency. */
+export const amountInBase = (e: Expense, tripCurrency: string): number => round2(e.amount * rateOf(e, tripCurrency))
+
+/** Each participant's share in the trip currency. */
+export const sharesInBase = (e: Expense, tripCurrency: string): Record<string, number> => {
+  const r = rateOf(e, tripCurrency)
+  if (r === 1) return shareOf(e)
+  // Convert the custom shares one by one; an equal split is re-spread on the converted total so it still adds up.
+  if (e.shares) return Object.fromEntries(Object.entries(shareOf(e)).map(([id, v]) => [id, round2(v * r)]))
+  return shareOf({ ...e, amount: amountInBase(e, tripCurrency), shares: undefined })
+}
+
 export interface Balance {
   person: Person
   /** Paid for the group (expenses only). */
@@ -54,16 +73,17 @@ export const balances = (trip: Trip): Balance[] => {
   const by = new Map(people.map((p) => [p.id, { person: p, paid: 0, share: 0, transferred: 0, net: 0 } as Balance]))
   for (const e of trip.expenses ?? []) {
     if (!(e.amount > 0)) continue
+    const amount = amountInBase(e, trip.currency)
     if (e.kind === 'transfer') {
       const from = by.get(e.paidBy)
       const to = by.get(e.participants[0])
-      if (from) from.transferred += e.amount
-      if (to) to.transferred -= e.amount
+      if (from) from.transferred += amount
+      if (to) to.transferred -= amount
       continue
     }
     const payer = by.get(e.paidBy)
-    if (payer) payer.paid += e.amount
-    for (const [id, amt] of Object.entries(shareOf(e))) {
+    if (payer) payer.paid += amount
+    for (const [id, amt] of Object.entries(sharesInBase(e, trip.currency))) {
       const b = by.get(id)
       if (b) b.share += amt
     }
@@ -109,7 +129,8 @@ export const settlements = (bals: Balance[]): Settlement[] => {
 }
 
 /** Total of the group's expenses (transfers are not spending). */
-export const totalSpent = (trip: Trip): number => round2((trip.expenses ?? []).filter((e) => e.kind === 'expense' && e.amount > 0).reduce((s, e) => s + e.amount, 0))
+export const totalSpent = (trip: Trip): number =>
+  round2((trip.expenses ?? []).filter((e) => e.kind === 'expense' && e.amount > 0).reduce((s, e) => s + amountInBase(e, trip.currency), 0))
 
 /** Plain-text summary to paste into a chat. */
 export const summaryText = (trip: Trip, money: (n: number) => string): string => {

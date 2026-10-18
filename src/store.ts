@@ -189,6 +189,11 @@ const sortDay = (trip: Trip, dayIndex: number) => {
   day.activityIds.sort((a, b) => toMinutes(trip.activities[a].start) - toMinutes(trip.activities[b].start))
 }
 
+/** Keep the last exchange rate used per foreign currency, so the next expense in it starts filled in. */
+const rememberRate = (t: Trip, e: Pick<Expense, 'currency' | 'rate'>) => {
+  if (e.currency && e.currency !== t.currency && e.rate && e.rate > 0) t.rates = { ...(t.rates ?? {}), [e.currency]: e.rate }
+}
+
 /**
  * 備用景點 blocks of a trip for writing: migrates the legacy single list into one block on first
  * touch and drops ids whose activity is gone. Only call inside `mutate`.
@@ -710,13 +715,19 @@ export const useStore = create<State>()(
         },
         addExpense: (e) => {
           const id = `x-${uid()}`
-          mutate((t) => (t.expenses = [...(t.expenses ?? []), { ...e, id, createdAt: Date.now() }]))
+          mutate((t) => {
+            t.expenses = [...(t.expenses ?? []), { ...e, id, createdAt: Date.now() }]
+            rememberRate(t, e)
+          })
           return id
         },
         updateExpense: (id, patch) =>
           mutate((t) => {
             const e = t.expenses?.find((x) => x.id === id)
-            if (e) Object.assign(e, patch)
+            if (!e) return
+            Object.assign(e, patch)
+            for (const k of ['currency', 'rate', 'shares', 'note'] as const) if (e[k] === undefined) delete e[k]
+            rememberRate(t, e)
           }),
         deleteExpense: (id) => mutate((t) => (t.expenses = (t.expenses ?? []).filter((x) => x.id !== id))),
       }

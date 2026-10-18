@@ -2769,6 +2769,16 @@ textarea {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* a foreign-currency amount carries its converted value underneath */
+.ex-amt small {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .expense.transfer .ex-amt {
@@ -2781,6 +2791,65 @@ textarea {
 .expense-dialog .field + .row,
 .expense-dialog .row + .row {
   margin-top: 12px;
+}
+
+/* name + amount share a row where there is room; on a phone the amount drops to its own line */
+.expense-dialog .row.wrap {
+  flex-wrap: wrap;
+}
+
+.expense-dialog .title-field {
+  flex: 2 1 190px;
+}
+
+.expense-dialog .amount-field {
+  flex: 1 1 170px;
+}
+
+/* currency picker glued to the amount: "JPY | 1200" */
+.amount-row {
+  display: flex;
+  gap: 0;
+}
+
+.amount-row select {
+  flex: none;
+  width: auto;
+  min-width: 78px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.amount-row input {
+  flex: 1;
+  min-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.rate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.rate-row input {
+  width: 110px;
+}
+
+.rate-preview {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .people-pick {

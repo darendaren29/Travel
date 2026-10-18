@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Category, type Expense, type Person, type Trip } from '../types'
 import { addDays, dayActivities, formatDate, formatMoney } from '../utils'
-import { balances, personColor, settlements, shareOf, summaryText, totalSpent, type Balance } from '../split'
+import { COMMON_CURRENCIES, amountInBase, balances, personColor, settlements, shareOf, summaryText, totalSpent, type Balance } from '../split'
 import { useEscape } from '../useEscape'
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -212,7 +212,9 @@ export default function SplitView() {
               <section key={g.date} className="expense-day">
                 <h4 className="expense-date">
                   <span>{dateHeading(trip, g.date)}</span>
-                  {g.items.some((e) => e.kind === 'expense') && <small>{money(g.items.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0))}</small>}
+                  {g.items.some((e) => e.kind === 'expense') && (
+                    <small>{money(g.items.filter((e) => e.kind === 'expense').reduce((s, e) => s + amountInBase(e, trip.currency), 0))}</small>
+                  )}
                 </h4>
                 <ul className="expense-list">
                   {g.items.map((e) => {
@@ -232,7 +234,11 @@ export default function SplitView() {
                               : `${payer?.name ?? '？'} 付 · ${parts.length === people.length ? '全員' : parts.join('、')}分攤${e.shares ? '（自訂）' : ''}`}
                           </small>
                         </span>
-                        <span className="ex-amt">{e.kind === 'transfer' ? '↩︎ ' : ''}{money(e.amount)}</span>
+                        <span className="ex-amt">
+                          {e.kind === 'transfer' ? '↩︎ ' : ''}
+                          {formatMoney(e.amount, e.currency || trip.currency)}
+                          {e.currency && e.currency !== trip.currency && <small>≈ {money(amountInBase(e, trip.currency))}</small>}
+                        </span>
                       </li>
                     )
                   })}
@@ -342,7 +348,27 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
   const [date, setDate] = useState(expense?.date || isoDate(new Date()))
   const [category, setCategory] = useState<Category>(expense?.category ?? 'food')
   const [note, setNote] = useState(expense?.note ?? '')
+  const [currency, setCurrency] = useState((expense?.currency || trip.currency).toUpperCase())
+  const [rate, setRate] = useState(expense?.rate ? String(expense.rate) : trip.rates?.[currency] ? String(trip.rates[currency]) : '')
   useEscape(onClose)
+
+  const foreign = currency !== trip.currency
+  const rateNum = Number(rate) || 0
+  const fmt = (n: number) => formatMoney(n, currency)
+  // The trip's own currency first, then the ones already used on this trip, then the usual suspects.
+  const currencyOptions = useMemo(() => {
+    const used = (trip.expenses ?? []).map((e) => e.currency).filter((c): c is string => !!c)
+    return [...new Set([trip.currency, currency, ...Object.keys(trip.rates ?? {}), ...used, ...COMMON_CURRENCIES])]
+  }, [trip.currency, trip.expenses, trip.rates, currency])
+  const pickCurrency = (c: string) => {
+    if (c === '__other') {
+      const code = (prompt('輸入幣別代碼（例如 CHF）') ?? '').trim().toUpperCase().slice(0, 4)
+      if (!code) return
+      c = code
+    }
+    setCurrency(c)
+    setRate(c === trip.currency ? '' : trip.rates?.[c] ? String(trip.rates[c]) : '')
+  }
 
   const amt = Number(amount) || 0
   const customSum = custom ? participants.reduce((s, id) => s + (Number(custom[id]) || 0), 0) : 0
@@ -351,7 +377,8 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
     () => shareOf({ id: '', kind: 'expense', title: '', amount: amt, paidBy, participants, shares: custom ? Object.fromEntries(participants.map((id) => [id, Number(custom[id]) || 0])) : undefined, date, category, createdAt: 0 }),
     [amt, paidBy, participants, custom, date, category],
   )
-  const valid = amt > 0 && paidBy && participants.length > 0 && (kind === 'expense' ? !custom || Math.abs(remainder) < 0.005 : participants.length === 1)
+  const valid =
+    amt > 0 && paidBy && participants.length > 0 && (!foreign || rateNum > 0) && (kind === 'expense' ? !custom || Math.abs(remainder) < 0.005 : participants.length === 1)
 
   const toggle = (id: string) =>
     setParticipants((ps) => (kind === 'transfer' ? [id] : ps.includes(id) ? ps.filter((x) => x !== id) : [...ps, id]))
@@ -367,11 +394,12 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
       ...(kind === 'expense' && custom ? { shares: Object.fromEntries(participants.map((id) => [id, Math.round((Number(custom[id]) || 0) * 100) / 100])) } : {}),
       date,
       category: kind === 'transfer' ? 'other' : category,
+      ...(foreign ? { currency, rate: rateNum } : {}),
       ...(note.trim() ? { note: note.trim() } : {}),
       ...(expense?.activityId ? { activityId: expense.activityId } : {}),
     }
     if (isNew) addExpense(data)
-    else updateExpense(expense!.id, { ...data, ...(custom ? {} : { shares: undefined }) })
+    else updateExpense(expense!.id, { ...data, ...(custom ? {} : { shares: undefined }), ...(foreign ? {} : { currency: undefined, rate: undefined }), ...(note.trim() ? {} : { note: undefined }) })
     onClose()
   }
 
@@ -396,16 +424,42 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
             </button>
           </div>
         )}
-        <div className="row">
-          <div className="field" style={{ flex: 2 }}>
+        <div className="row wrap">
+          <div className="field title-field">
             <label>{kind === 'transfer' ? '說明' : '名稱'}</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={kind === 'transfer' ? '例如：還上次的晚餐' : '例如：第一天晚餐'} autoFocus />
           </div>
-          <div className="field">
-            <label>金額（{trip.currency}）</label>
-            <input type="number" inputMode="decimal" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+          <div className="field amount-field">
+            <label>金額</label>
+            <div className="amount-row">
+              <select value={currency} onChange={(e) => pickCurrency(e.target.value)} aria-label="幣別" title="這筆用什麼幣別付的">
+                {currencyOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+                <option value="__other">其他…</option>
+              </select>
+              <input type="number" inputMode="decimal" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+            </div>
           </div>
         </div>
+        {foreign && (
+          <div className="field rate-field">
+            <label>匯率（換算成 {trip.currency}）</label>
+            <div className="rate-row">
+              <span>1 {currency} =</span>
+              <input type="number" inputMode="decimal" min={0} step="any" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0" aria-label="匯率" />
+              <span>{trip.currency}</span>
+              {amt > 0 && rateNum > 0 && (
+                <b className="rate-preview">
+                  ≈ {formatMoney(amt * rateNum, trip.currency)}
+                </b>
+              )}
+            </div>
+            {!(rateNum > 0) && <p className="share-tip warn">分帳一律換算成 {trip.currency} 計算，請填匯率。</p>}
+          </div>
+        )}
         <div className="row">
           <div className="field">
             <label>{kind === 'transfer' ? '誰還錢' : '誰付的'}</label>
@@ -436,7 +490,7 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
               >
                 <Avatar person={p} people={people} size="sm" />
                 {p.name}
-                {kind === 'expense' && participants.includes(p.id) && amt > 0 && <small>{formatMoney(preview[p.id] ?? 0, trip.currency)}</small>}
+                {kind === 'expense' && participants.includes(p.id) && amt > 0 && <small>{fmt(preview[p.id] ?? 0)}</small>}
               </button>
             ))}
             {kind === 'expense' && (
@@ -467,7 +521,7 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
                   </label>
                 ))}
                 <p className={`share-tip ${Math.abs(remainder) >= 0.005 ? 'warn' : ''}`}>
-                  {Math.abs(remainder) < 0.005 ? '✓ 金額剛好分完' : remainder > 0 ? `還差 ${formatMoney(remainder, trip.currency)} 沒分到` : `多分了 ${formatMoney(-remainder, trip.currency)}`}
+                  {Math.abs(remainder) < 0.005 ? '✓ 金額剛好分完' : remainder > 0 ? `還差 ${fmt(remainder)} 沒分到` : `多分了 ${fmt(-remainder)}`}
                 </p>
               </div>
             )}

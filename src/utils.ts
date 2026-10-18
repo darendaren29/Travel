@@ -57,8 +57,9 @@ export const todayIndex = (trip: Pick<Trip, 'startDate' | 'days'>, now = new Dat
 export const formatDate = (d: Date): string =>
   `${d.getMonth() + 1}/${d.getDate()} (${WEEKDAYS[d.getDay()]})`
 
+/** "JPY 1,200"; cents are shown only when there are any ("USD 12.5"). */
 export const formatMoney = (n: number, currency: string): string =>
-  `${currency} ${Math.round(n).toLocaleString()}`
+  `${currency} ${(Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 
 export const dayColor = (index: number): string => DAY_COLORS[index % DAY_COLORS.length]
 

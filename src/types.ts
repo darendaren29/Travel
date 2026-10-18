@@ -91,6 +91,8 @@ export interface Trip {
   people?: Person[]
   /** 分帳: who paid what, shared by whom; plus settlement transfers. */
   expenses?: Expense[]
+  /** 分帳: last used exchange rate per foreign currency (1 unit = `rate` trip currency), prefilled for the next expense. */
+  rates?: Record<string, number>
 }
 
 /** A traveller in the 分帳 (bill splitting); a plain name, so people without an account count too. */
@@ -101,13 +103,18 @@ export interface Person {
 
 /**
  * One shared cost (`kind: 'expense'`) or one repayment (`kind: 'transfer'`, paid by the debtor to
- * the single participant). Amounts are in the trip currency.
+ * the single participant). Amounts are in `currency` when set, else the trip currency; `rate`
+ * converts them for the balances, which are always in the trip currency.
  */
 export interface Expense {
   id: string
   kind: 'expense' | 'transfer'
   title: string
   amount: number
+  /** Currency of `amount` and `shares`; absent = trip currency. */
+  currency?: string
+  /** 1 unit of `currency` in trip currency; required when `currency` differs from the trip's. */
+  rate?: number
   /** Person who paid. */
   paidBy: string
   /** Who shares the cost (an expense) or who received the money (a transfer: exactly one). */
