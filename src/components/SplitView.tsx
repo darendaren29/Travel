@@ -2,12 +2,30 @@ import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, useCurrentTrip } from '../store'
 import { CATEGORIES, CATEGORY_META, type Category, type Expense, type Person, type Trip } from '../types'
-import { addDays, dayActivities, formatMoney } from '../utils'
-import { balances, settlements, shareOf, summaryText, totalSpent, type Balance } from '../split'
+import { addDays, dayActivities, formatDate, formatMoney } from '../utils'
+import { balances, personColor, settlements, shareOf, summaryText, totalSpent, type Balance } from '../split'
 import { useEscape } from '../useEscape'
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const EPS = 0.005
+
+/** A traveller's initial in their colour: the same mark everywhere they appear on this page. */
+function Avatar({ person, people, size }: { person: Person | undefined; people: Person[]; size?: 'sm' }) {
+  return (
+    <span className={`pavatar ${size ?? ''}`} style={{ '--pc': person ? personColor(people, person.id) : 'var(--muted)' } as React.CSSProperties} aria-hidden="true">
+      {(person?.name ?? '?').trim().slice(0, 1) || '?'}
+    </span>
+  )
+}
+
+/** "第 2 天 · 11/21 (六)" when the date falls inside the trip, else just the date. */
+const dateHeading = (trip: Trip, iso: string): string => {
+  const d = new Date(iso + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return iso
+  const idx = Math.round((d.getTime() - addDays(trip.startDate, 0).getTime()) / 86400000)
+  const label = formatDate(d)
+  return idx >= 0 && idx < trip.days.length ? `第 ${idx + 1} 天 · ${label}` : label
+}
 
 /** 分帳: who paid, who shares, who still owes whom. */
 export default function SplitView() {
@@ -20,6 +38,16 @@ export default function SplitView() {
   const total = totalSpent(trip)
   const money = (n: number) => formatMoney(n, trip.currency)
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
+  // Newest day first, one group per date.
+  const byDate = useMemo(() => {
+    const groups: { date: string; items: Expense[] }[] = []
+    for (const e of expenses) {
+      const g = groups[groups.length - 1]
+      if (g && g.date === e.date) g.items.push(e)
+      else groups.push({ date: e.date, items: [e] })
+    }
+    return groups
+  }, [expenses])
   const [editing, setEditing] = useState<Expense | 'new' | null>(null)
   const [newName, setNewName] = useState('')
 
@@ -103,9 +131,12 @@ export default function SplitView() {
           <h3>⚖️ 收支</h3>
           <ul className="balance-list">
             {bals.map((b) => (
-              <BalanceRow key={b.person.id} b={b} money={money} max={Math.max(1, ...bals.map((x) => Math.max(x.paid, x.share)))} />
+              <BalanceRow key={b.person.id} b={b} people={people} money={money} max={Math.max(1, ...bals.map((x) => Math.max(x.paid, x.share)))} />
             ))}
           </ul>
+          <p className="bal-legend" aria-hidden="true">
+            <i className="paid" /> 付了 <i className="share" /> 應付
+          </p>
           <h4 className="split-sub">結清方式（最少轉帳）</h4>
           {settle.length === 0 ? (
             <p className="muted-note">大家都結清了，沒有人欠誰。</p>
@@ -114,7 +145,11 @@ export default function SplitView() {
               {settle.map((t, i) => (
                 <li key={i}>
                   <span className="who">
-                    <b>{t.from.name}</b> → <b>{t.to.name}</b>
+                    <Avatar person={t.from} people={people} size="sm" />
+                    <b>{t.from.name}</b>
+                    <span className="arrow">→</span>
+                    <Avatar person={t.to} people={people} size="sm" />
+                    <b>{t.to.name}</b>
                   </span>
                   <span className="amt">{money(t.amount)}</span>
                   <button className="btn sm" onClick={() => markPaid(t.from, t.to, t.amount)} title="記一筆還款，收支就會歸零">
@@ -136,6 +171,7 @@ export default function SplitView() {
           <ul className="people-list">
             {people.map((p) => (
               <li key={p.id}>
+                <Avatar person={p} people={people} />
                 <input className="person-name" value={p.name} onChange={(e) => renamePerson(p.id, e.target.value)} aria-label="旅伴名字" />
                 <button className="btn sm ghost" onClick={() => remove(p)} title="移除旅伴" aria-label={`移除 ${p.name}`}>
                   ✕
@@ -171,27 +207,39 @@ export default function SplitView() {
         {expenses.length === 0 ? (
           <p className="muted-note">還沒有支出。按「＋ 新增支出」，或從行程帶入一筆。</p>
         ) : (
-          <ul className="expense-list">
-            {expenses.map((e) => {
-              const payer = byId.get(e.paidBy)?.name ?? '？'
-              const parts = e.participants.map((id) => byId.get(id)?.name ?? '？')
-              return (
-                <li key={e.id} className={`expense ${e.kind}`} onClick={() => setEditing(e)} title="點一下編輯">
-                  <span className="ex-date">{e.date.slice(5).replace('-', '/')}</span>
-                  <span className="ex-ic" style={{ '--cat': CATEGORY_META[e.category].color } as React.CSSProperties}>
-                    {e.kind === 'transfer' ? '↩︎' : CATEGORY_META[e.category].icon}
-                  </span>
-                  <span className="ex-main">
-                    <b>{e.title || (e.kind === 'transfer' ? '還款' : '（未命名）')}</b>
-                    <small>
-                      {e.kind === 'transfer' ? `${payer} 還給 ${parts[0] ?? '？'}` : `${payer} 付 · ${parts.length === people.length ? '全員' : parts.join('、')}分攤${e.shares ? '（自訂）' : ''}`}
-                    </small>
-                  </span>
-                  <span className="ex-amt">{money(e.amount)}</span>
-                </li>
-              )
-            })}
-          </ul>
+          <div className="expense-days">
+            {byDate.map((g) => (
+              <section key={g.date} className="expense-day">
+                <h4 className="expense-date">
+                  <span>{dateHeading(trip, g.date)}</span>
+                  {g.items.some((e) => e.kind === 'expense') && <small>{money(g.items.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0))}</small>}
+                </h4>
+                <ul className="expense-list">
+                  {g.items.map((e) => {
+                    const payer = byId.get(e.paidBy)
+                    const parts = e.participants.map((id) => byId.get(id)?.name ?? '？')
+                    return (
+                      <li key={e.id} className={`expense ${e.kind}`} onClick={() => setEditing(e)} title="點一下編輯">
+                        <span className="ex-ic" style={{ '--cat': CATEGORY_META[e.category].color } as React.CSSProperties}>
+                          {e.kind === 'transfer' ? '↩︎' : CATEGORY_META[e.category].icon}
+                        </span>
+                        <span className="ex-main">
+                          <b>{e.title || (e.kind === 'transfer' ? '還款' : '（未命名）')}</b>
+                          <small>
+                            <Avatar person={payer} people={people} size="sm" />
+                            {e.kind === 'transfer'
+                              ? `${payer?.name ?? '？'} 還給 ${parts[0] ?? '？'}`
+                              : `${payer?.name ?? '？'} 付 · ${parts.length === people.length ? '全員' : parts.join('、')}分攤${e.shares ? '（自訂）' : ''}`}
+                          </small>
+                        </span>
+                        <span className="ex-amt">{e.kind === 'transfer' ? '↩︎ ' : ''}{money(e.amount)}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
       </div>
 
@@ -212,22 +260,25 @@ export default function SplitView() {
   )
 }
 
-function BalanceRow({ b, money, max }: { b: Balance; money: (n: number) => string; max: number }) {
+function BalanceRow({ b, people, money, max }: { b: Balance; people: Person[]; money: (n: number) => string; max: number }) {
   const state = b.net > EPS ? 'plus' : b.net < -EPS ? 'minus' : 'zero'
   return (
-    <li className={`balance ${state}`}>
-      <div className="bal-head">
-        <b>{b.person.name}</b>
-        <span className="bal-net">{state === 'plus' ? `應收 ${money(b.net)}` : state === 'minus' ? `應付 ${money(-b.net)}` : '結清'}</span>
+    <li className={`balance ${state}`} style={{ '--pc': personColor(people, b.person.id) } as React.CSSProperties}>
+      <Avatar person={b.person} people={people} />
+      <div className="bal-body">
+        <div className="bal-head">
+          <b>{b.person.name}</b>
+          <span className="bal-net">{state === 'plus' ? `應收 ${money(b.net)}` : state === 'minus' ? `應付 ${money(-b.net)}` : '✓ 結清'}</span>
+        </div>
+        <div className="bal-bars" aria-hidden="true">
+          <span className="paid" style={{ width: `${(b.paid / max) * 100}%` }} />
+          <span className="share" style={{ width: `${(b.share / max) * 100}%` }} />
+        </div>
+        <small>
+          付了 {money(b.paid)} · 應付 {money(b.share)}
+          {Math.abs(b.transferred) > EPS && ` · ${b.transferred > 0 ? '已還' : '已收'} ${money(Math.abs(b.transferred))}`}
+        </small>
       </div>
-      <div className="bal-bars" aria-hidden="true">
-        <span className="paid" style={{ width: `${(b.paid / max) * 100}%` }} />
-        <span className="share" style={{ width: `${(b.share / max) * 100}%` }} />
-      </div>
-      <small>
-        付了 {money(b.paid)} · 應付 {money(b.share)}
-        {Math.abs(b.transferred) > EPS && ` · ${b.transferred > 0 ? '已還' : '已收'} ${money(Math.abs(b.transferred))}`}
-      </small>
     </li>
   )
 }
@@ -375,7 +426,15 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
           <label>{kind === 'transfer' ? '還給誰' : '誰分攤'}</label>
           <div className="people-pick">
             {people.map((p) => (
-              <button key={p.id} type="button" className={participants.includes(p.id) ? 'on' : ''} onClick={() => toggle(p.id)} disabled={kind === 'transfer' && p.id === paidBy}>
+              <button
+                key={p.id}
+                type="button"
+                className={participants.includes(p.id) ? 'on' : ''}
+                style={{ '--pc': personColor(people, p.id) } as React.CSSProperties}
+                onClick={() => toggle(p.id)}
+                disabled={kind === 'transfer' && p.id === paidBy}
+              >
+                <Avatar person={p} people={people} size="sm" />
                 {p.name}
                 {kind === 'expense' && participants.includes(p.id) && amt > 0 && <small>{formatMoney(preview[p.id] ?? 0, trip.currency)}</small>}
               </button>
@@ -402,6 +461,7 @@ function ExpenseDialog({ trip, expense, onClose, onDelete }: { trip: Trip; expen
               <div className="custom-shares">
                 {participants.map((id) => (
                   <label key={id}>
+                    <Avatar person={people.find((p) => p.id === id)} people={people} size="sm" />
                     <span>{people.find((p) => p.id === id)?.name}</span>
                     <input type="number" inputMode="decimal" min={0} step="any" value={custom[id] ?? ''} onChange={(e) => setCustom({ ...custom, [id]: e.target.value })} placeholder="0" />
                   </label>

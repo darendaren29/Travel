@@ -2427,9 +2427,48 @@ textarea {
   padding: 0;
 }
 
+/* traveller mark: initial on their colour, like a luggage sticker */
+.pavatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  --pc-fill: var(--pc, var(--muted));
+  background: var(--pc-fill);
+  color: #fff;
+  font-family: var(--font-title);
+  font-weight: 900;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 2.5px color-mix(in srgb, var(--pc-fill) 35%, transparent);
+  user-select: none;
+}
+
+.pavatar.sm {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  box-shadow: none;
+}
+
 .balance {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   padding: 10px 0;
   border-bottom: 1px dashed var(--border);
+}
+
+.balance > .pavatar {
+  margin-top: 1px;
+}
+
+.bal-body {
+  flex: 1;
+  min-width: 0;
 }
 
 .balance:last-child {
@@ -2482,7 +2521,8 @@ textarea {
 }
 
 .bal-bars .paid {
-  background: var(--airmail);
+  --pc-fill: var(--pc, var(--airmail-blue));
+  background: var(--pc-fill);
 }
 
 .bal-bars .share {
@@ -2493,6 +2533,37 @@ textarea {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.bal-legend {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bal-legend i {
+  width: 14px;
+  height: 5px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.bal-legend i + i,
+.bal-legend .share {
+  margin-left: 6px;
+}
+
+.bal-legend .paid {
+  background: var(--ink);
+}
+
+.bal-legend .share {
+  background: var(--border-strong);
 }
 
 .split-sub {
@@ -2524,6 +2595,19 @@ textarea {
 .settle-list .who {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settle-list .who b {
+  white-space: nowrap;
+}
+
+.settle-list .arrow {
+  color: var(--muted);
+  margin: 0 2px;
 }
 
 .settle-list .amt {
@@ -2535,8 +2619,12 @@ textarea {
 .people-list li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   padding: 4px 0;
+}
+
+.people-list li + li {
+  border-top: 1px dashed var(--border);
 }
 
 .person-name {
@@ -2583,9 +2671,36 @@ textarea {
   max-width: 220px;
 }
 
+/* one block per date, newest first; the heading doubles as the day's subtotal */
+.expense-day + .expense-day {
+  margin-top: 14px;
+}
+
+.expense-date {
+  margin: 0 0 2px;
+  padding: 4px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border-bottom: 1.5px solid var(--border-strong);
+}
+
+.expense-date small {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .expense {
   display: grid;
-  grid-template-columns: 44px 30px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 9px 4px;
@@ -2600,12 +2715,6 @@ textarea {
 
 .expense:last-child {
   border-bottom: 0;
-}
-
-.ex-date {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
 }
 
 .ex-ic {
@@ -2643,6 +2752,16 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.ex-main small .pavatar {
+  width: 15px;
+  height: 15px;
+  font-size: 9px;
 }
 
 .ex-amt {
@@ -2674,7 +2793,7 @@ textarea {
   border: 1.5px solid var(--border-strong);
   background: var(--surface);
   border-radius: 999px;
-  padding: 5px 12px;
+  padding: 4px 12px 4px 5px;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -2683,12 +2802,38 @@ textarea {
   align-items: center;
   gap: 6px;
   color: var(--muted);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
+.people-pick button .pavatar {
+  opacity: 0.55;
+}
+
+/* picked: filled with the traveller's own colour, the initial flips to white-on-colour */
 .people-pick button.on {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--surface);
+  --pc-fill: var(--pc, var(--ink));
+  border-color: var(--pc-fill);
+  background: var(--pc-fill);
+  color: #fff;
+}
+
+.people-pick button.on .pavatar {
+  opacity: 1;
+  background: #fff;
+  color: var(--pc, var(--ink));
+}
+
+.people-pick button.ghost {
+  padding-left: 12px;
+}
+
+/* night: the inks are mixed towards white so they still read on the dark card */
+@media (prefers-color-scheme: dark) {
+  .pavatar,
+  .bal-bars .paid,
+  .people-pick button.on {
+    --pc-fill: color-mix(in srgb, var(--pc, var(--muted)) 70%, #fff);
+  }
 }
 
 .people-pick button small {
@@ -2715,8 +2860,9 @@ textarea {
 .custom-shares label {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-size: 13px;
+  font-weight: 600;
 }
 
 .custom-shares label span {
@@ -2734,12 +2880,24 @@ textarea {
   }
 
   .expense {
-    grid-template-columns: 38px 28px minmax(0, 1fr) auto;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
     gap: 8px;
   }
 
+  /* one row: the itinerary picker takes what the add button leaves */
+  .expenses-head .actions {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
   .from-itinerary {
+    flex: 1;
+    min-width: 0;
     max-width: 100%;
+  }
+
+  .expenses-head .actions .btn {
+    flex: none;
   }
 }
 
@@ -3795,13 +3953,30 @@ textarea {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  /* the odd one out takes the whole last row */
-  .kpi:last-child {
+  .kpi {
+    padding: 12px 14px;
+  }
+
+  /* an odd one out takes the whole last row; an even set stays a tidy 2×2 */
+  .kpi:nth-child(odd):last-child {
     grid-column: 1 / -1;
   }
 
+  .kpi:nth-child(even) {
+    border-right: 0;
+  }
+
+  /* the bottom row has no rule under it: the last card, and its left neighbour in a 2×2 */
+  .kpi:nth-child(odd):nth-last-child(2) {
+    border-bottom: 0;
+  }
+
   .kpi .value {
-    font-size: 20px;
+    font-size: 19px;
+  }
+
+  .kpi:last-child .value {
+    font-size: 18px;
   }
 
   .dialog {

@@ -2,6 +2,14 @@
 
 import type { Expense, Person, Trip } from './types'
 
+/** One ink colour per traveller, by their position in the list; readable as a fill behind white text on both paper and night. */
+export const PERSON_COLORS = ['#1f3d8f', '#b97300', '#2e7d4f', '#7b3fa0', '#c2185b', '#00796b', '#8d4a1e', '#4a5568']
+
+export const personColor = (people: Person[] | undefined, id: string): string => {
+  const i = (people ?? []).findIndex((p) => p.id === id)
+  return PERSON_COLORS[(i < 0 ? PERSON_COLORS.length - 1 : i) % PERSON_COLORS.length]
+}
+
 /** Amounts are compared to the cent. */
 const round2 = (n: number) => Math.round(n * 100) / 100
 const EPS = 0.005
